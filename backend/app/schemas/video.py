@@ -43,6 +43,9 @@ class RenderResponse(BaseModel):
     job_id: str
     status: RenderJobStatus
     progress_percent: int
+    stage: Optional[str] = None
+    stage_message: Optional[str] = None
+    logs: Optional[List[str]] = Field(default_factory=list)
     video_url: Optional[str] = None
     file_path: Optional[str] = None
     duration_sec: Optional[float] = None

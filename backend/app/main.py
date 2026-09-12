@@ -200,13 +200,21 @@ async def generate_scene_script(req: ScriptGenerationRequest):
 
 async def _run_render_job(job_id: str, request: RenderRequest):
     """Background task to run video rendering pipeline."""
-    try:
-        JOBS[job_id]["status"] = RenderJobStatus.GENERATING_VOICEOVER
-        JOBS[job_id]["progress_percent"] = 20
+    def on_progress(pct: int, stage_name: str, msg: str):
+        if job_id in JOBS:
+            JOBS[job_id]["progress_percent"] = pct
+            JOBS[job_id]["stage"] = stage_name
+            JOBS[job_id]["stage_message"] = msg
+            try:
+                JOBS[job_id]["status"] = RenderJobStatus(stage_name)
+            except ValueError:
+                pass
+            if msg and (not JOBS[job_id]["logs"] or JOBS[job_id]["logs"][-1] != msg):
+                JOBS[job_id]["logs"].append(msg)
 
+    try:
+        on_progress(10, "generating_voiceover", "Starting neural voice synthesis & scene generation...")
         script_dict = request.script.model_dump()
-        JOBS[job_id]["status"] = RenderJobStatus.GENERATING_VISUALS
-        JOBS[job_id]["progress_percent"] = 40
 
         output_path = await video_engine.assemble_full_video(
             script_dict=script_dict,
@@ -217,17 +225,23 @@ async def _run_render_job(job_id: str, request: RenderRequest):
             include_bg_music=request.include_bg_music,
             bg_music_genre=request.bg_music_genre,
             edit_style=script_dict.get("edit_style", settings.EDIT_STYLE),
+            progress_callback=on_progress,
         )
 
         JOBS[job_id]["status"] = RenderJobStatus.COMPLETED
         JOBS[job_id]["progress_percent"] = 100
+        JOBS[job_id]["stage"] = "completed"
+        JOBS[job_id]["stage_message"] = "Final MP4 render ready for playback and download"
         JOBS[job_id]["file_path"] = str(output_path)
         JOBS[job_id]["video_url"] = f"/outputs/{output_path.name}"
         logger.info("Job %s finished: %s", job_id, output_path.name)
     except Exception as e:
         logger.error("Render job %s failed: %s", job_id, e, exc_info=True)
         JOBS[job_id]["status"] = RenderJobStatus.FAILED
+        JOBS[job_id]["stage"] = "failed"
+        JOBS[job_id]["stage_message"] = f"Render error: {str(e)}"
         JOBS[job_id]["error_message"] = str(e)
+        JOBS[job_id]["logs"].append(f"ERROR: {str(e)}")
 
 
 # ── Research endpoints ─────────────────────────────────────────────────────────
@@ -262,6 +276,9 @@ async def start_video_render(req: RenderRequest, background_tasks: BackgroundTas
         "job_id": job_id,
         "status": RenderJobStatus.QUEUED,
         "progress_percent": 5,
+        "stage": "queued",
+        "stage_message": "Job queued in render pipeline...",
+        "logs": ["Job initialized and queued"],
         "video_url": None,
         "file_path": None,
         "error_message": None,
@@ -272,7 +289,10 @@ async def start_video_render(req: RenderRequest, background_tasks: BackgroundTas
     return RenderResponse(
         job_id=job_id,
         status=RenderJobStatus.QUEUED,
-        progress_percent=5
+        progress_percent=5,
+        stage="queued",
+        stage_message="Job queued in render pipeline...",
+        logs=["Job initialized and queued"],
     )
 
 

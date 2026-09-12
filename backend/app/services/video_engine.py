@@ -281,13 +281,22 @@ class VideoEngine:
         include_bg_music: bool = True,
         bg_music_genre: str = "",
         edit_style: str = "",
+        progress_callback: Optional[Callable[[int, str, str], None]] = None,
     ) -> Path:
         """Full pipeline: TTS -> Images (multi-cut) -> Scene Clips -> Concat -> Music -> Subtitles -> Final MP4."""
+        def report(pct: int, stg: str, msg: str):
+            if progress_callback:
+                try:
+                    progress_callback(pct, stg, msg)
+                except Exception as _e:
+                    logger.warning("Progress callback error: %s", _e)
+
         job_id = uuid.uuid4().hex[:8]
         job_temp = self.temp_dir / f"job_{job_id}"
         job_temp.mkdir(parents=True, exist_ok=True)
 
         scenes = script_dict.get("scenes", [])
+        total_scenes = max(len(scenes), 1)
         genre = script_dict.get("genre", "informative")
         _edit_style = edit_style or script_dict.get("edit_style", settings.EDIT_STYLE)
         _voice = voice_name or settings.DEFAULT_VOICE
@@ -304,6 +313,7 @@ class VideoEngine:
 
         logger.info("Starting video assembly: %d scenes, edit_style=%s, %s",
                     len(scenes), _edit_style, aspect_ratio)
+        report(10, "generating_voiceover", f"Initializing audio & neural voice ({_voice})...")
 
         # ── Step 1: Generate TTS + images for all scenes ─────────────────────
         for idx, sc in enumerate(scenes, start=1):
@@ -311,6 +321,10 @@ class VideoEngine:
             v_prompt = sc.get("visual_prompt", "")
             motion = sc.get("camera_motion", "zoom_in")
             sub_clip_prompts = sc.get("sub_clips", [])
+
+            # Compute progressive percentage between 10% and 65%
+            scene_base_pct = 10 + int((idx - 1) / total_scenes * 55)
+            report(scene_base_pct, "generating_voiceover", f"[Scene {idx}/{total_scenes}] Synthesizing TTS narration...")
 
             # Synthesize TTS
             audio_path = await tts_service.synthesize(
@@ -331,6 +345,8 @@ class VideoEngine:
             use_multi_cut = (fast_cuts and settings.IMAGES_PER_SCENE > 1
                              and image_service.active_provider != "procedural")
 
+            report(scene_base_pct + 3, "generating_visuals", f"[Scene {idx}/{total_scenes}] Generating visual assets ({image_service.active_provider})...")
+
             if use_multi_cut and sub_clip_prompts:
                 image_paths = await image_service.generate_multi_cut_images(
                     primary_prompt=v_prompt,
@@ -344,6 +360,8 @@ class VideoEngine:
                     prompt=v_prompt, genre=genre, aspect=aspect_ratio, output_dir=job_temp
                 )
                 image_paths = [img]
+
+            report(scene_base_pct + 6, "compositing_video", f"[Scene {idx}/{total_scenes}] Rendering camera motion ({motion})...")
 
             # Render scene clip
             scene_clip = job_temp / f"clip_{idx:03d}.mp4"
@@ -378,6 +396,7 @@ class VideoEngine:
             cumulative_time += scene_duration
 
         # ── Step 2: Concatenate all clips ─────────────────────────────────────
+        report(70, "compositing_video", f"Concatenating {len(clip_paths)} scene clips into master timeline...")
         concat_list_file = job_temp / "concat_list.txt"
         with open(concat_list_file, "w", encoding="utf-8") as f:
             for cp in clip_paths:
@@ -395,6 +414,7 @@ class VideoEngine:
         # ── Step 3: Mix background music ─────────────────────────────────────
         mixed_audio_path = job_temp / "mixed_audio.aac"
         if include_bg_music and settings.MUSIC_ENABLED and all_audio_paths:
+            report(78, "compositing_video", f"Mixing & ducking dynamic background soundtrack ({music_genre})...")
             # Concat all TTS segments into one audio track first
             concat_audio_list = job_temp / "audio_concat.txt"
             with open(concat_audio_list, "w") as f:
@@ -431,6 +451,7 @@ class VideoEngine:
         final_path = self.output_dir / f"CineShorts_{job_id}_{aspect_ratio.replace(':', 'x')}.mp4"
 
         if burn_subtitles:
+            report(88, "burning_subtitles", f"Synthesizing and burning dynamic {subtitle_style.value} typography...")
             ass_path = subtitle_engine.generate_ass_subtitles(
                 scenes_data=enriched_scenes,
                 style=subtitle_style,
@@ -451,6 +472,7 @@ class VideoEngine:
         else:
             shutil.copy2(raw_video, final_path)
 
+        report(100, "completed", f"Video render completed successfully: {final_path.name}")
         logger.info("Video complete: %s (%.1fs, %d scenes)", final_path.name, cumulative_time, len(scenes))
         return final_path
 

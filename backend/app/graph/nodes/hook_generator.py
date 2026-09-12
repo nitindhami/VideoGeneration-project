@@ -4,22 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import settings
-from app.schemas.hook import HookCandidate, HookResponse as HookGenerationResponse
+from app.schemas.hook import HookArchetype, HookCandidate, HookResponse as HookGenerationResponse
 from app.services.llm_factory import llm_service
 
 logger = logging.getLogger(__name__)
 
 HOOK_ARCHETYPES = [
-    "SHOCKING_STAT",       # Opens with a jaw-dropping number most people don't know
-    "PARADOX_REVEAL",      # Contradicts something the audience thinks is true
-    "PATTERN_INTERRUPT",   # Violently breaks expected framing (starts mid-action/thought)
-    "INSIDER_EXCLUSIVE",   # "What they don't teach you about X..." — secret knowledge frame
-    "COUNTDOWN_TENSION",   # "In 60 seconds, you'll never see X the same way again"
+    "curiosity_gap",       # Opens with a jaw-dropping unanswered question or secret
+    "pattern_interrupt",   # Violently breaks expected framing (starts mid-action/shock)
+    "forbidden_truth",     # "The truth they don't want you to know about X..."
+    "high_stakes",         # High urgency or catastrophic/consequential stakes
+    "paradox",             # Contradicts something the audience assumes is true
+    "question_loop",       # Unresolved cognitive question that demands an answer
 ]
 
 HOOK_SYSTEM_PROMPT = """You are the world's most effective viral hook writer for short-form video.
@@ -34,10 +35,11 @@ You understand:
 - Rhythm matters: the hook should have natural spoken cadence with a beat drop
 
 For each hook:
-- Write exactly what would be SPOKEN by the narrator (not a title)
-- Include at least ONE specific verifiable detail (number, date, name, place)
-- Create COGNITIVE DISSONANCE — make the viewer feel they must keep watching to resolve it
-- Rate each hook 1-10 on: Curiosity Gap, Specificity, Shock Factor, Rewatch Value"""
+- Write exactly what would be SPOKEN by the narrator (text)
+- Choose a valid archetype: curiosity_gap, pattern_interrupt, forbidden_truth, high_stakes, paradox, question_loop
+- Describe a high-contrast 0-2s visual concept (visual_concept)
+- Specify an audio sfx cue (audio_sfx_cue e.g. "heavy bass drop with camera shutter")
+- Explain why it captures psychological attention (explanation)"""
 
 
 def _build_hook_prompt(topic: str, genre: str, research_brief: Optional[dict] = None) -> str:
@@ -47,7 +49,7 @@ def _build_hook_prompt(topic: str, genre: str, research_brief: Optional[dict] = 
         stats = "\n".join(f"  - {f}" for f in research_brief.get("surprising_stats", [])[:4])
         controversy = research_brief.get("controversy_angle", "")
         research_context = f"""
-VERIFIED RESEARCH (use these SPECIFIC details in the hooks — not generic statements):
+VERIFIED RESEARCH:
 KEY FACTS:
 {facts}
 
@@ -55,96 +57,130 @@ SURPRISING STATS:
 {stats}
 
 CONTROVERSY ANGLE: {controversy}
-
-⚠️ MANDATE: At least 3 of your 5 hooks MUST use a specific number, date, or name from the research above.
 """
 
     return f"""Topic: "{topic}" | Genre: {genre}
 {research_context}
 
-Write EXACTLY 5 viral hooks using these archetypes: {', '.join(HOOK_ARCHETYPES)}
-
-Each hook must:
-1. Be 10-18 spoken words maximum
-2. Create an immediate curiosity gap
-3. Use hard-consonant openings (not "I", "We", "So")
-4. Include at least one specific detail (number, name, place, date)
-5. Have natural spoken rhythm — read it aloud; it must flow
+Write EXACTLY 5 viral hooks using these archetypes: curiosity_gap, pattern_interrupt, forbidden_truth, high_stakes, paradox, question_loop.
 
 Return a JSON array ONLY, no markdown:
 [
   {{
-    "hook_text": "The exact spoken hook",
-    "archetype": "ARCHETYPE_NAME",
-    "emotion_trigger": "fear|curiosity|outrage|awe|nostalgia|desire",
-    "retention_score": 8.5,
-    "opening_word": "first word",
-    "why_it_works": "one sentence explanation"
-  }},
-  ...5 total
+    "id": "hook_1",
+    "text": "The exact spoken hook in 10-18 words",
+    "archetype": "curiosity_gap",
+    "visual_concept": "Macro zoom on cracked Roman concrete with glowing crystal seals",
+    "audio_sfx_cue": "heavy sub bass drop and stone crack",
+    "explanation": "Creates immediate cognitive dissonance with verified ancient engineering"
+  }}
 ]"""
 
 
-def generate_hooks(state: dict) -> dict:
+async def generate_hooks(state: Dict[str, Any]) -> Dict[str, Any]:
     """LangGraph node: generate viral hooks with research grounding."""
     topic = state.get("topic", "")
     genre = state.get("genre", "informative")
     research_brief = state.get("research_brief", None)
+    iteration_count = state.get("iteration_count", 0) + 1
+    latest_critique = state.get("latest_critique")
 
-    logger.info("Generating hooks for: %s (provider: %s)", topic, llm_service.provider)
+    logger.info("Generating hooks for: %s (iteration %d, provider: %s)", topic, iteration_count, llm_service.provider)
+
+    prompt = _build_hook_prompt(topic, genre, research_brief)
+    if latest_critique:
+        prompt += f"\n\nPREVIOUS CRITIQUE TO FIX:\n{latest_critique}"
 
     try:
-        llm = llm_service.get_langchain_llm()
-        messages = [
-            SystemMessage(content=HOOK_SYSTEM_PROMPT),
-            HumanMessage(content=_build_hook_prompt(topic, genre, research_brief)),
-        ]
-        response = llm.invoke(messages)
-        raw = response.content if hasattr(response, "content") else str(response)
-
-        # Strip markdown fences
-        raw = raw.strip()
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-
-        hooks_data = json.loads(raw)
-        hooks = []
-        for i, h in enumerate(hooks_data[:5]):
-            hooks.append(HookCandidate(
-                hook_id=i + 1,
-                hook_text=h.get("hook_text", ""),
-                archetype=h.get("archetype", "SHOCKING_STAT"),
-                emotion_trigger=h.get("emotion_trigger", "curiosity"),
-                retention_score=float(h.get("retention_score", 7.0)),
-                opening_word=h.get("opening_word", h.get("hook_text", "").split()[0] if h.get("hook_text") else ""),
-                why_it_works=h.get("why_it_works", ""),
-            ))
-
-        result = HookGenerationResponse(
-            topic=topic,
-            genre=genre,
-            hooks=hooks,
-            recommended_hook=hooks[0] if hooks else None,
+        raw_json = await llm_service.invoke_json(
+            HOOK_SYSTEM_PROMPT,
+            prompt,
+            fallback_response=[
+                {
+                    "id": "hook_1",
+                    "text": f"The hidden truth about {topic} that history tried to bury.",
+                    "archetype": "forbidden_truth",
+                    "visual_concept": f"Dramatic cinematic reveal of {topic} under harsh spotlight",
+                    "audio_sfx_cue": "deep bass impact and riser",
+                    "explanation": "Taps into curiosity gap and forbidden knowledge framing",
+                },
+                {
+                    "id": "hook_2",
+                    "text": f"Why 99% of people completely misunderstand how {topic} actually works.",
+                    "archetype": "pattern_interrupt",
+                    "visual_concept": f"Fast glitch cut showing unexpected reality of {topic}",
+                    "audio_sfx_cue": "record scratch and rapid whoosh",
+                    "explanation": "Challenges common beliefs and stops scroll",
+                },
+                {
+                    "id": "hook_3",
+                    "text": f"If you think you know {topic}, this one discovery changes everything.",
+                    "archetype": "paradox",
+                    "visual_concept": f"High contrast split-screen comparison of {topic}",
+                    "audio_sfx_cue": "heartbeat tempo buildup",
+                    "explanation": "Creates unresolved curiosity loop",
+                }
+            ]
         )
-        logger.info("Generated %d hooks", len(hooks))
-        return {**state, "hook_response": result, "hooks": hooks}
+
+        candidates_data = raw_json if isinstance(raw_json, list) else raw_json.get("hooks", raw_json.get("candidates", []))
+        if not candidates_data and isinstance(raw_json, dict):
+            candidates_data = [raw_json]
+
+        valid_archetypes = {a.value for a in HookArchetype}
+        candidates: List[Dict[str, Any]] = []
+
+        for i, h in enumerate(candidates_data[:5], start=1):
+            arch = str(h.get("archetype", "curiosity_gap")).lower()
+            if arch not in valid_archetypes:
+                arch = "curiosity_gap"
+
+            cand = {
+                "id": str(h.get("id") or f"hook_{i}"),
+                "text": str(h.get("text") or h.get("hook_text") or f"The untold story behind {topic}."),
+                "archetype": arch,
+                "visual_concept": str(h.get("visual_concept") or f"Cinematic visual closeup of {topic}"),
+                "audio_sfx_cue": str(h.get("audio_sfx_cue") or "dramatic whoosh and bass hit"),
+                "explanation": str(h.get("explanation") or h.get("why_it_works") or "Immediate scroll stopping curiosity"),
+            }
+            candidates.append(cand)
+
+        if not candidates:
+            candidates = [
+                {
+                    "id": "hook_1",
+                    "text": f"The hidden secret of {topic} that changes everything.",
+                    "archetype": "forbidden_truth",
+                    "visual_concept": f"Cinematic reveal of {topic}",
+                    "audio_sfx_cue": "sub bass drop",
+                    "explanation": "High retention curiosity trigger",
+                }
+            ]
+
+        logger.info("Generated %d hook candidates", len(candidates))
+        return {
+            **state,
+            "candidates": candidates,
+            "iteration_count": iteration_count,
+        }
 
     except Exception as exc:
-        logger.error("Hook generation failed: %s", exc)
-        # Return a fallback hook so the pipeline doesn't break
-        fallback = HookCandidate(
-            hook_id=1,
-            hook_text=f"The truth about {topic} that nobody is talking about",
-            archetype="INSIDER_EXCLUSIVE",
-            emotion_trigger="curiosity",
-            retention_score=6.0,
-            opening_word="The",
-            why_it_works="Creates curiosity gap with exclusive framing",
-        )
-        result = HookGenerationResponse(topic=topic, genre=genre, hooks=[fallback], recommended_hook=fallback)
-        return {**state, "hook_response": result, "hooks": [fallback]}
+        logger.error("Hook generation failed: %s", exc, exc_info=True)
+        fallback = [
+            {
+                "id": "hook_1",
+                "text": f"The untold truth about {topic} that nobody talks about.",
+                "archetype": "forbidden_truth",
+                "visual_concept": f"Dramatic cinematic reveal of {topic}",
+                "audio_sfx_cue": "dramatic bass impact",
+                "explanation": "Instant curiosity gap",
+            }
+        ]
+        return {
+            **state,
+            "candidates": fallback,
+            "iteration_count": iteration_count,
+        }
 
 # Alias for LangGraph workflow compatibility
 hook_generator_node = generate_hooks

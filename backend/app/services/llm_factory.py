@@ -128,37 +128,39 @@ class LLMService:
         response = self._client.messages.create(**kwargs)
         return response.content[0].text or ""
 
-    # ── LangChain-compatible wrapper ───────────────────────────────────────
-    def get_langchain_llm(self):
-        """Return a LangChain-compatible chat model for LangGraph compatibility."""
-        if settings.GEMINI_API_KEY:
-            try:
-                from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
-                return ChatGoogleGenerativeAI(
-                    model=self._model,
-                    google_api_key=settings.GEMINI_API_KEY,
-                    temperature=0.9,
-                )
-            except Exception as e:
-                logger.warning("LangChain Gemini failed: %s", e)
+    async def generate_async(self, prompt: str, system: str = "", temperature: float = 0.9, max_tokens: int = 4096) -> str:
+        """Asynchronous text generation with fallback."""
+        if self._provider == "mock" or not self._client:
+            return ""
+        try:
+            import asyncio
+            return await asyncio.to_thread(self.generate, prompt, system, temperature, max_tokens)
+        except Exception as e:
+            logger.warning("generate_async failed: %s", e)
+            return ""
 
-        if settings.OPENAI_API_KEY:
-            try:
-                from langchain_openai import ChatOpenAI  # type: ignore
-                return ChatOpenAI(model="gpt-4o", api_key=settings.OPENAI_API_KEY, temperature=0.9)
-            except Exception as e:
-                logger.warning("LangChain OpenAI failed: %s", e)
+    async def invoke_json(self, system: str, user_prompt: str, fallback_response: Any = None) -> Any:
+        """Call LLM and parse JSON output safely with automatic fallback."""
+        import json
+        if self._provider == "mock" or not self._client:
+            return fallback_response
 
-        if settings.ANTHROPIC_API_KEY:
-            try:
-                from langchain_anthropic import ChatAnthropic  # type: ignore
-                return ChatAnthropic(model="claude-sonnet-4-5", api_key=settings.ANTHROPIC_API_KEY)
-            except Exception as e:
-                logger.warning("LangChain Anthropic failed: %s", e)
+        try:
+            full_prompt = f"{user_prompt}\n\nRespond ONLY with valid JSON."
+            raw_text = await self.generate_async(full_prompt, system=system, temperature=0.7)
+            if not raw_text or not raw_text.strip():
+                return fallback_response
 
-        # Free fallback
-        from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore
-        return ChatGoogleGenerativeAI(model=settings.FALLBACK_LLM_MODEL, temperature=0.9)
+            clean_text = raw_text.strip()
+            if "```json" in clean_text:
+                clean_text = clean_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_text:
+                clean_text = clean_text.split("```")[1].split("```")[0].strip()
+
+            return json.loads(clean_text)
+        except Exception as exc:
+            logger.warning("invoke_json parsing or API error (%s) — using fallback", exc)
+            return fallback_response
 
 
 # Singleton instance

@@ -49,7 +49,7 @@ class Script(BaseModel):
     genre: str
     aspect_ratio: str = "9:16"
     edit_style: str = Field(default="fast_cuts", description="fast_cuts | cinematic | hybrid")
-    selected_hook: HookCandidate
+    selected_hook: Optional[HookCandidate] = None
     scenes: List[Scene]
     estimated_total_duration: float
     call_to_action: str = Field(..., description="Final 2-3s retention loop or follow prompt")

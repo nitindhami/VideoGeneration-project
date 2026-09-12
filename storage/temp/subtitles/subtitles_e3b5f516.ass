@@ -1,0 +1,27 @@
+[Script Info]
+Title: CineShorts Dynamic Subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: 1080
+PlayResY: 1920
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: ViralMain,Arial Black,56,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,5,3,2,60,60,380,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.22,ViralMain,,0,0,0,,{\c&H0000FFFF&}ANCIENT{\c&H00FFFFFF&} ROMANS HAD
+Dialogue: 0,0:00:01.22,0:00:02.44,ViralMain,,0,0,0,,{\c&H0000FFFF&}A{\c&H00FFFFFF&} SECRET RECIPE
+Dialogue: 0,0:00:02.44,0:00:03.65,ViralMain,,0,0,0,,{\c&H0000FFFF&}FOR{\c&H00FFFFFF&} CONCRETE THAT
+Dialogue: 0,0:00:03.65,0:00:04.87,ViralMain,,0,0,0,,{\c&H0000FFFF&}ACTUALLY{\c&H00FFFFFF&} HEALS ITSELF.
+Dialogue: 0,0:00:04.87,0:00:06.23,ViralMain,,0,0,0,,{\c&H0000FFFF&}MODERN{\c&H00FFFFFF&} SCIENTISTS ONLY
+Dialogue: 0,0:00:06.23,0:00:07.58,ViralMain,,0,0,0,,{\c&H0000FFFF&}DISCOVERED{\c&H00FFFFFF&} WHY: QUICKLIME
+Dialogue: 0,0:00:07.58,0:00:08.94,ViralMain,,0,0,0,,{\c&H0000FFFF&}TRIGGERS{\c&H00FFFFFF&} A CHEMICAL
+Dialogue: 0,0:00:08.94,0:00:10.29,ViralMain,,0,0,0,,{\c&H0000FFFF&}REACTION{\c&H00FFFFFF&} WHENEVER RAINWATER
+Dialogue: 0,0:00:10.29,0:00:11.65,ViralMain,,0,0,0,,{\c&H0000FFFF&}SEEPS{\c&H00FFFFFF&} INSIDE.
+Dialogue: 0,0:00:11.65,0:00:12.88,ViralMain,,0,0,0,,{\c&H0000FFFF&}SUBSCRIBE{\c&H00FFFFFF&} TO DISCOVER
+Dialogue: 0,0:00:12.88,0:00:14.11,ViralMain,,0,0,0,,{\c&H0000FFFF&}MORE{\c&H00FFFFFF&} FORGOTTEN ANCIENT
+Dialogue: 0,0:00:14.11,0:00:15.35,ViralMain,,0,0,0,,{\c&H0000FFFF&}TECHNOLOGY.

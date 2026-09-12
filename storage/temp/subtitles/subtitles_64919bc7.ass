@@ -1,0 +1,58 @@
+[Script Info]
+Title: CineShorts Dynamic Subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: 1080
+PlayResY: 1920
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: ViralMain,Arial Black,56,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,5,3,2,60,60,380,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.02,ViralMain,,0,0,0,,{\c&H0000FFFF&}EVERY{\c&H00FFFFFF&} HISTORY BOOK
+Dialogue: 0,0:00:01.02,0:00:02.05,ViralMain,,0,0,0,,{\c&H0000FFFF&}LIED{\c&H00FFFFFF&} TO YOU
+Dialogue: 0,0:00:02.05,0:00:03.07,ViralMain,,0,0,0,,{\c&H0000FFFF&}ABOUT{\c&H00FFFFFF&} NEEM KAROLI
+Dialogue: 0,0:00:03.07,0:00:04.10,ViralMain,,0,0,0,,{\c&H0000FFFF&}BABA{\c&H00FFFFFF&} , HIS
+Dialogue: 0,0:00:04.10,0:00:05.12,ViralMain,,0,0,0,,{\c&H0000FFFF&}MAGICAL{\c&H00FFFFFF&} AND SPIRITUAL
+Dialogue: 0,0:00:05.12,0:00:06.15,ViralMain,,0,0,0,,{\c&H0000FFFF&}JOURNEY{\c&H00FFFFFF&} AND WHO
+Dialogue: 0,0:00:06.15,0:00:07.17,ViralMain,,0,0,0,,{\c&H0000FFFF&}ARE{\c&H00FFFFFF&} GREAT PEOPLE
+Dialogue: 0,0:00:07.17,0:00:08.20,ViralMain,,0,0,0,,{\c&H0000FFFF&}WHO{\c&H00FFFFFF&} FOLLOW HIM.
+Dialogue: 0,0:00:08.20,0:00:09.27,ViralMain,,0,0,0,,{\c&H0000FFFF&}DEEP{\c&H00FFFFFF&} BENEATH THE
+Dialogue: 0,0:00:09.27,0:00:10.35,ViralMain,,0,0,0,,{\c&H0000FFFF&}SURFACE,{\c&H00FFFFFF&} ANCIENT SCRIBES
+Dialogue: 0,0:00:10.35,0:00:11.42,ViralMain,,0,0,0,,{\c&H0000FFFF&}INSCRIBED{\c&H00FFFFFF&} SECRETS ABOUT
+Dialogue: 0,0:00:11.42,0:00:12.49,ViralMain,,0,0,0,,{\c&H0000FFFF&}NEEM{\c&H00FFFFFF&} KAROLI BABA
+Dialogue: 0,0:00:12.49,0:00:13.57,ViralMain,,0,0,0,,{\c&H0000FFFF&},{\c&H00FFFFFF&} HIS MAGICAL
+Dialogue: 0,0:00:13.57,0:00:14.64,ViralMain,,0,0,0,,{\c&H0000FFFF&}AND{\c&H00FFFFFF&} SPIRITUAL JOURNEY
+Dialogue: 0,0:00:14.64,0:00:15.72,ViralMain,,0,0,0,,{\c&H0000FFFF&}AND{\c&H00FFFFFF&} WHO ARE
+Dialogue: 0,0:00:15.72,0:00:16.79,ViralMain,,0,0,0,,{\c&H0000FFFF&}GREAT{\c&H00FFFFFF&} PEOPLE WHO
+Dialogue: 0,0:00:16.79,0:00:17.87,ViralMain,,0,0,0,,{\c&H0000FFFF&}FOLLOW{\c&H00FFFFFF&} HIM THAT
+Dialogue: 0,0:00:17.87,0:00:18.94,ViralMain,,0,0,0,,{\c&H0000FFFF&}WERE{\c&H00FFFFFF&} DEEMED TOO
+Dialogue: 0,0:00:18.94,0:00:20.02,ViralMain,,0,0,0,,{\c&H0000FFFF&}DANGEROUS{\c&H00FFFFFF&} FOR MORTALS.
+Dialogue: 0,0:00:20.02,0:00:21.54,ViralMain,,0,0,0,,{\c&H0000FFFF&}WHEN{\c&H00FFFFFF&} ARCHAEOLOGISTS RECENTLY
+Dialogue: 0,0:00:21.54,0:00:23.06,ViralMain,,0,0,0,,{\c&H0000FFFF&}TRANSLATED{\c&H00FFFFFF&} THE LOST
+Dialogue: 0,0:00:23.06,0:00:24.58,ViralMain,,0,0,0,,{\c&H0000FFFF&}TABLET,{\c&H00FFFFFF&} THEY REALIZED
+Dialogue: 0,0:00:24.58,0:00:26.10,ViralMain,,0,0,0,,{\c&H0000FFFF&}IT{\c&H00FFFFFF&} DESCRIBED AN
+Dialogue: 0,0:00:26.10,0:00:27.63,ViralMain,,0,0,0,,{\c&H0000FFFF&}ACTUAL{\c&H00FFFFFF&} ASTRONOMICAL EVENT
+Dialogue: 0,0:00:27.63,0:00:29.15,ViralMain,,0,0,0,,{\c&H0000FFFF&}WITH{\c&H00FFFFFF&} TERRIFYING PRECISION.
+Dialogue: 0,0:00:29.15,0:00:30.15,ViralMain,,0,0,0,,{\c&H0000FFFF&}THIS{\c&H00FFFFFF&} PROVES THE
+Dialogue: 0,0:00:30.15,0:00:31.14,ViralMain,,0,0,0,,{\c&H0000FFFF&}ANCIENTS{\c&H00FFFFFF&} DID NOT
+Dialogue: 0,0:00:31.14,0:00:32.14,ViralMain,,0,0,0,,{\c&H0000FFFF&}JUST{\c&H00FFFFFF&} TELL STORIES;
+Dialogue: 0,0:00:32.14,0:00:33.14,ViralMain,,0,0,0,,{\c&H0000FFFF&}THEY{\c&H00FFFFFF&} PRESERVED AN
+Dialogue: 0,0:00:33.14,0:00:34.14,ViralMain,,0,0,0,,{\c&H0000FFFF&}EYEWITNESS{\c&H00FFFFFF&} RECORD OF
+Dialogue: 0,0:00:34.14,0:00:35.14,ViralMain,,0,0,0,,{\c&H0000FFFF&}NEEM{\c&H00FFFFFF&} KAROLI BABA
+Dialogue: 0,0:00:35.14,0:00:36.14,ViralMain,,0,0,0,,{\c&H0000FFFF&},{\c&H00FFFFFF&} HIS MAGICAL
+Dialogue: 0,0:00:36.14,0:00:37.13,ViralMain,,0,0,0,,{\c&H0000FFFF&}AND{\c&H00FFFFFF&} SPIRITUAL JOURNEY
+Dialogue: 0,0:00:37.13,0:00:38.13,ViralMain,,0,0,0,,{\c&H0000FFFF&}AND{\c&H00FFFFFF&} WHO ARE
+Dialogue: 0,0:00:38.13,0:00:39.13,ViralMain,,0,0,0,,{\c&H0000FFFF&}GREAT{\c&H00FFFFFF&} PEOPLE WHO
+Dialogue: 0,0:00:39.13,0:00:40.13,ViralMain,,0,0,0,,{\c&H0000FFFF&}FOLLOW{\c&H00FFFFFF&} HIM.
+Dialogue: 0,0:00:40.13,0:00:41.28,ViralMain,,0,0,0,,{\c&H0000FFFF&}WHICH{\c&H00FFFFFF&} ANCIENT MYTH
+Dialogue: 0,0:00:41.28,0:00:42.44,ViralMain,,0,0,0,,{\c&H0000FFFF&}DO{\c&H00FFFFFF&} YOU THINK
+Dialogue: 0,0:00:42.44,0:00:43.59,ViralMain,,0,0,0,,{\c&H0000FFFF&}HOLDS{\c&H00FFFFFF&} A REAL
+Dialogue: 0,0:00:43.59,0:00:44.74,ViralMain,,0,0,0,,{\c&H0000FFFF&}SECRET?{\c&H00FFFFFF&} DROP YOUR
+Dialogue: 0,0:00:44.74,0:00:45.90,ViralMain,,0,0,0,,{\c&H0000FFFF&}THOUGHTS{\c&H00FFFFFF&} BELOW AND
+Dialogue: 0,0:00:45.90,0:00:47.05,ViralMain,,0,0,0,,{\c&H0000FFFF&}SUBSCRIBE{\c&H00FFFFFF&} FOR MORE
+Dialogue: 0,0:00:47.05,0:00:48.20,ViralMain,,0,0,0,,{\c&H0000FFFF&}LOST{\c&H00FFFFFF&} HISTORIES.

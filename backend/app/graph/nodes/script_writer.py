@@ -1,193 +1,213 @@
-"""Scene-by-Scene Scriptwriter Node for LangGraph."""
+"""Script Writer Node — Film-level scriptwriting with research grounding and edit style awareness."""
 
+from __future__ import annotations
+
+import json
 import logging
-from typing import Any, Dict, List
-from app.graph.state import HookEngineState
+from typing import Optional
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.config import settings
+from app.schemas.hook import HookCandidate
+from app.schemas.script import Scene, Script, ScriptGenerationRequest
 from app.services.llm_factory import llm_service
 
 logger = logging.getLogger(__name__)
 
+SCRIPT_SYSTEM_PROMPT = """You are an elite short-form video scriptwriter who has written for viral channels with 10M+ subscribers.
+You blend the narrative depth of Kurzgesagt with the fast-paced shock of MrBeast and the authority of a Netflix documentary.
 
-def _generate_fallback_scenes(topic: str, genre: str, hook_text: str, aspect_ratio: str) -> List[Dict[str, Any]]:
-    """Generate high-retention structured scenes tailored by genre."""
-    ratio_tag = "9:16 vertical smartphone format" if aspect_ratio == "9:16" else "16:9 cinematic widescreen format"
-    
-    if genre == "mythology":
-        return [
-            {
-                "scene_id": 1,
-                "duration_sec": 3.5,
-                "voiceover_text": hook_text,
-                "visual_hook_type": "Macro time-lapse zoom",
-                "visual_prompt": f"Hyper-realistic cinematic close up of ancient temple sanctum with glowing mystical symbols on marble, volumetric smoke, {ratio_tag}, 8k photorealism",
-                "on_screen_text": "FORBIDDEN MYTH",
-                "audio_sfx_cue": "sub_bass_drop",
-                "camera_motion": "zoom_in",
-            },
-            {
-                "scene_id": 2,
-                "duration_sec": 4.0,
-                "voiceover_text": f"Deep beneath the surface, ancient scribes inscribed secrets about {topic} that were deemed too dangerous for mortals.",
-                "visual_hook_type": "Dolly tracking shot",
-                "visual_prompt": f"Dramatic cinematic camera tracking along ancient gold-leaf papyrus scrolls and glowing embers in a lost subterranean vault, {ratio_tag}, cinematic lighting",
-                "on_screen_text": "TOO DANGEROUS TO SPEAK",
-                "audio_sfx_cue": "torch_flicker_and_whisper",
-                "camera_motion": "pan_right",
-            },
-            {
-                "scene_id": 3,
-                "duration_sec": 4.5,
-                "voiceover_text": "When archaeologists recently translated the lost tablet, they realized it described an actual astronomical event with terrifying precision.",
-                "visual_hook_type": "Split-contrast reveal",
-                "visual_prompt": f"Mythological celestial eclipse with cosmic lightning arcing across star constellations, ancient stone observatory below, {ratio_tag}, hyper-detailed",
-                "on_screen_text": "ASTRONOMICAL WARNING",
-                "audio_sfx_cue": "cosmic_riser_hit",
-                "camera_motion": "zoom_in",
-            },
-            {
-                "scene_id": 4,
-                "duration_sec": 4.0,
-                "voiceover_text": f"This proves the ancients did not just tell stories; they preserved an eyewitness record of {topic}.",
-                "visual_hook_type": "Wide heroic reveal",
-                "visual_prompt": f"Heroic silhouette standing before a colossal carved monolith against a fiery sunset sky, atmospheric dust motes, {ratio_tag}, unreal engine 5 render",
-                "on_screen_text": "THEY WERE WITNESSES",
-                "audio_sfx_cue": "deep_cinematic_horn",
-                "camera_motion": "zoom_out",
-            },
-            {
-                "scene_id": 5,
-                "duration_sec": 4.0,
-                "voiceover_text": "Which ancient myth do you think holds a real secret? Drop your thoughts below and subscribe for more lost histories.",
-                "visual_hook_type": "Closing kinetic loop",
-                "visual_prompt": f"Mysterious glowing ancient artifact slowly rotating in mid-air surrounded by golden sparks, dark cinematic studio backdrop, {ratio_tag}",
-                "on_screen_text": "WHAT SECRET IS NEXT?",
-                "audio_sfx_cue": "heartbeat_fadeout",
-                "camera_motion": "zoom_in",
-            },
-        ]
-    else:  # informative, science, funny, etc.
-        return [
-            {
-                "scene_id": 1,
-                "duration_sec": 3.5,
-                "voiceover_text": hook_text,
-                "visual_hook_type": "Rapid pattern interrupt",
-                "visual_prompt": f"Extreme high-speed macro shot focusing on {topic}, glowing neon energy ripples, sharp depth of field, {ratio_tag}, award winning 8k photography",
-                "on_screen_text": "WAIT FOR THIS",
-                "audio_sfx_cue": "whoosh_impact",
-                "camera_motion": "zoom_in",
-            },
-            {
-                "scene_id": 2,
-                "duration_sec": 4.0,
-                "voiceover_text": f"For decades, the standard explanation was completely different, until researchers tested what actually happens beneath the surface.",
-                "visual_hook_type": "Dolly zoom transition",
-                "visual_prompt": f"Futuristic high-tech research lab with holographic data displays analyzing molecular structure of {topic}, clean modern lighting, {ratio_tag}",
-                "on_screen_text": "THE HIDDEN MECHANISM",
-                "audio_sfx_cue": "digital_scanner_beep",
-                "camera_motion": "pan_left",
-            },
-            {
-                "scene_id": 3,
-                "duration_sec": 4.5,
-                "voiceover_text": f"It turns out that {topic} creates a chain reaction that completely alters the outcome in less than half a second.",
-                "visual_hook_type": "Time-dilation slow motion",
-                "visual_prompt": f"Ultra slow-motion explosion of energetic particles colliding and reassembling in mid-air, luminescent amber and cyan hues, {ratio_tag}",
-                "on_screen_text": "INSTANT REACTION!",
-                "audio_sfx_cue": "sub_bass_drop",
-                "camera_motion": "zoom_in",
-            },
-            {
-                "scene_id": 4,
-                "duration_sec": 4.0,
-                "voiceover_text": "Engineers are now copying this exact biological principle to build next-generation technology.",
-                "visual_hook_type": "Dynamic futuristic tilt",
-                "visual_prompt": f"Sleek aerospace prototype glowing with cybernetic circuits inspired by {topic}, cinematic studio rim light, {ratio_tag}",
-                "on_screen_text": "FUTURE TECH UNLOCKED",
-                "audio_sfx_cue": "power_up_synth",
-                "camera_motion": "tilt_up",
-            },
-            {
-                "scene_id": 5,
-                "duration_sec": 4.0,
-                "voiceover_text": "Did you know this before today? Follow to discover the wildest science breakthroughs first.",
-                "visual_hook_type": "Visual retention loop",
-                "visual_prompt": f"Luminescent hourglass reversing gravity with glowing blue sand flowing upwards, dark cinematic backdrop, {ratio_tag}",
-                "on_screen_text": "FOLLOW FOR DAILY DISCOVERIES",
-                "audio_sfx_cue": "kinetic_pop",
-                "camera_motion": "zoom_out",
-            },
-        ]
+Your scripts follow the VIRAL RETENTION FORMULA:
+- Scene 1 (0-3s): THE HOOK — deliver the opening hook immediately, no preamble
+- Scene 2-3 (3-10s): TENSION BUILD — introduce the core conflict or mystery with ONE shocking fact
+- Scene 4-5 (10-20s): EVIDENCE DROP — specific data points, names, dates — the proof that builds credibility
+- Scene 6-7 (20-27s): REVELATION — the counter-intuitive truth, the payoff moment
+- Scene 8 (27-30s): CTA LOOP — end with an unresolved question or "follow for part 2" hook
+
+WRITING RULES (non-negotiable):
+1. Every voiceover sentence must contain AT LEAST ONE of: a number, a proper noun, a specific location, or a date
+2. NO filler words: "basically", "kind of", "you know", "essentially" — every word earns its place
+3. Sentence length: 8-12 words per scene (spoken in 2-3 seconds)
+4. Use ACTIVE VOICE only — never passive constructions
+5. Each scene needs a distinct emotional beat: curiosity → tension → shock → revelation → urgency
+6. Visual prompts must be SPECIFIC and CINEMATIC — describe lighting, perspective, subject, atmosphere
+7. For FAST_CUTS edit style: scenes should be 1.5-2.5s each, create 8-10+ cuts across 30s
+8. For CINEMATIC style: scenes can be 4-6s, more contemplative pacing
+9. Sub-clips: for fast_cuts, provide 2-3 visual variation prompts per scene for multi-image cutting"""
 
 
-async def script_writer_node(state: HookEngineState) -> Dict[str, Any]:
-    """LangGraph node to convert the winning hook into a micro-scene storyboard script."""
-    topic = state.get("topic", "Roman Concrete")
-    genre = state.get("genre", "informative")
-    aspect_ratio = state.get("aspect_ratio", "9:16")
-    winning_hook = state.get("winning_hook", {})
-    hook_text = winning_hook.get("text", f"This fact about {topic} will blow your mind.")
+def _scenes_for_duration(target_sec: int, edit_style: str) -> int:
+    if edit_style == "fast_cuts":
+        return max(8, target_sec // 3)   # ~1 scene per 3s for fast cutting
+    elif edit_style == "cinematic":
+        return max(4, target_sec // 6)   # ~1 scene per 6s for cinematic
+    else:  # hybrid
+        return max(6, target_sec // 4)
 
-    logger.info(f"Writing script for topic='{topic}', genre='{genre}', aspect_ratio='{aspect_ratio}'")
 
-    system_prompt = (
-        "You are an expert Short-Form Video Director & Scriptwriter. You turn viral hooks into "
-        "electrifying 30-second video scripts broken down scene-by-scene (3 to 5 seconds per scene). "
-        "Every single scene MUST have: voiceover narration, visual generator prompt, on-screen text, "
-        "sound effect cue, and camera motion."
-    )
+def _build_script_prompt(
+    topic: str,
+    genre: str,
+    target_duration: int,
+    hook: Optional[HookCandidate],
+    edit_style: str,
+    research_brief: Optional[dict] = None,
+) -> str:
+    num_scenes = _scenes_for_duration(target_duration, edit_style)
+    scene_duration = target_duration / num_scenes
 
-    user_prompt = f"""
-Topic: {topic}
-Genre: {genre}
-Winning Hook: {hook_text}
-Aspect Ratio: {aspect_ratio}
+    research_context = ""
+    if research_brief:
+        facts = "\n".join(f"  {i+1}. {f}" for i, f in enumerate(research_brief.get("key_facts", [])[:6]))
+        stats = "\n".join(f"  - {s}" for s in research_brief.get("surprising_stats", [])[:4])
+        arc = research_brief.get("narrative_arc", "")
+        controversy = research_brief.get("controversy_angle", "")
+        visuals = "\n".join(f"  - {v}" for v in research_brief.get("visual_opportunities", [])[:4])
+        research_context = f"""
+═══ VERIFIED RESEARCH (MANDATORY — embed these specific facts into scenes) ═══
+NARRATIVE ARC: {arc}
+CONTROVERSY ANGLE: {controversy}
 
-Create a 5-scene high-retention video script.
-Format your output as a JSON object with:
-- title: Short punchy title
-- call_to_action: Follow/comment retention loop
-- scenes: List of 5 scene objects containing:
-  * scene_id (int)
-  * duration_sec (float between 3.0 and 5.0)
-  * voiceover_text (concise narration line)
-  * visual_hook_type (e.g. Macro Zoom, Rapid Reveal)
-  * visual_prompt (hyper-detailed image generator prompt specifying lighting, angle, and {aspect_ratio} composition)
-  * on_screen_text (punchy 2-4 word bold caption)
-  * audio_sfx_cue (sound effect name)
-  * camera_motion (one of: zoom_in, zoom_out, pan_left, pan_right, tilt_up)
+KEY FACTS TO USE:
+{facts}
+
+SURPRISING STATS:
+{stats}
+
+VISUAL OPPORTUNITIES:
+{visuals}
+
+⚠️ MANDATE: You MUST incorporate at least 5 of these specific researched facts/stats into voiceover lines.
+Do NOT use vague generalities — cite actual details from the research above.
 """
 
-    fallback_scenes = _generate_fallback_scenes(topic, genre, hook_text, aspect_ratio)
-    fallback_script = {
-        "title": f"The Secret of {topic}",
-        "call_to_action": "Follow for more daily discoveries!",
-        "scenes": fallback_scenes,
-    }
+    hook_instruction = ""
+    if hook:
+        hook_instruction = f"\nOPENING HOOK (use this EXACTLY as Scene 1 voiceover): \"{hook.hook_text}\"\n"
 
-    response = await llm_service.invoke_json(system_prompt, user_prompt, fallback_script)
-    scenes = response.get("scenes", fallback_scenes)
-    
-    # Calculate cumulative timings
-    curr_time = 0.0
-    for sc in scenes:
-        dur = sc.get("duration_sec", 4.0)
-        sc["start_time_sec"] = round(curr_time, 2)
-        curr_time += dur
-        sc["end_time_sec"] = round(curr_time, 2)
+    return f"""Write a {target_duration}-second {genre} short-form video script about: "{topic}"
+{hook_instruction}
+Edit style: {edit_style.upper()} ({num_scenes} scenes, ~{scene_duration:.1f}s each)
+{research_context}
 
-    full_script = {
-        "title": response.get("title", f"The Truth About {topic}"),
-        "topic": topic,
-        "genre": genre,
-        "aspect_ratio": aspect_ratio,
-        "selected_hook": winning_hook,
-        "scenes": scenes,
-        "estimated_total_duration": round(curr_time, 2),
-        "call_to_action": response.get("call_to_action", "Follow for more!"),
-    }
+Generate EXACTLY {num_scenes} scenes.
 
-    return {
-        "scenes": scenes,
-        "full_script": full_script,
-    }
+Return ONLY a valid JSON object (no markdown):
+{{
+  "title": "Compelling clickbait-adjacent title (5-8 words)",
+  "topic": "{topic}",
+  "genre": "{genre}",
+  "edit_style": "{edit_style}",
+  "aspect_ratio": "9:16",
+  "estimated_total_duration": {target_duration},
+  "research_brief_summary": "2-sentence summary of the key research insight used",
+  "call_to_action": "Follow for part 2 | Comment X if you knew this | Share this with someone who needs to hear it",
+  "scenes": [
+    {{
+      "scene_id": 1,
+      "duration_sec": {scene_duration:.1f},
+      "voiceover_text": "Exact spoken words (8-14 words, specific facts, punchy)",
+      "visual_prompt": "Cinematic prompt: [subject], [setting], [lighting], [camera angle], [mood]. 8K, photorealistic, sharp focus. NO text, NO watermarks.",
+      "on_screen_text": "2-4 WORD CALLOUT ALL CAPS",
+      "visual_hook_type": "Hard Cut|Whip Pan|Zoom Burst|Macro Reveal|Contrast Cut",
+      "camera_motion": "zoom_in|zoom_out|pan_left|pan_right|whip_pan|dutch_angle",
+      "transition_to_next": "hard_cut|whip_pan|flash_cut|cross_dissolve",
+      "audio_sfx_cue": "whoosh|bass_drop|riser|impact|heartbeat|silence",
+      "emphasis_words": ["word1", "word2"],
+      "sub_clips": ["Alt visual prompt 1 for cut", "Alt visual prompt 2 for cut"],
+      "cut_timing": [0.8, 1.6]
+    }}
+  ]
+}}"""
+
+
+def generate_script(state: dict) -> dict:
+    """LangGraph node: write a film-level script using research and hook."""
+    request: ScriptGenerationRequest = state.get("script_request")
+    hook: Optional[HookCandidate] = state.get("selected_hook") or (
+        state.get("hooks", [None])[0]
+    )
+    research_brief = state.get("research_brief", None)
+
+    if not request:
+        logger.error("No script_request in state")
+        return state
+
+    topic = request.topic
+    genre = request.genre
+    edit_style = getattr(request, "edit_style", settings.EDIT_STYLE)
+    target_duration = request.target_duration_sec
+
+    logger.info("Writing %s script for '%s' (edit_style=%s, provider=%s)",
+                genre, topic, edit_style, llm_service.provider)
+
+    try:
+        llm = llm_service.get_langchain_llm()
+        messages = [
+            SystemMessage(content=SCRIPT_SYSTEM_PROMPT),
+            HumanMessage(content=_build_script_prompt(
+                topic, genre, target_duration, hook, edit_style, research_brief
+            )),
+        ]
+        response = llm.invoke(messages)
+        raw = response.content if hasattr(response, "content") else str(response)
+
+        # Strip markdown fences
+        raw = raw.strip()
+        if "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+
+        data = json.loads(raw)
+
+        # Build Scene objects
+        scenes = []
+        t = 0.0
+        for s in data.get("scenes", []):
+            dur = float(s.get("duration_sec", 3.0))
+            scenes.append(Scene(
+                scene_id=s.get("scene_id", len(scenes) + 1),
+                start_time_sec=t,
+                end_time_sec=t + dur,
+                duration_sec=dur,
+                voiceover_text=s.get("voiceover_text", ""),
+                visual_prompt=s.get("visual_prompt", ""),
+                on_screen_text=s.get("on_screen_text", ""),
+                visual_hook_type=s.get("visual_hook_type", "Hard Cut"),
+                camera_motion=s.get("camera_motion", "zoom_in"),
+                transition_to_next=s.get("transition_to_next", "hard_cut"),
+                audio_sfx_cue=s.get("audio_sfx_cue", "whoosh"),
+                emphasis_words=s.get("emphasis_words", []),
+                sub_clips=s.get("sub_clips", []),
+                cut_timing=s.get("cut_timing", []),
+            ))
+            t += dur
+
+        script = Script(
+            title=data.get("title", topic),
+            topic=topic,
+            genre=genre,
+            edit_style=edit_style,
+            aspect_ratio=request.aspect_ratio,
+            selected_hook=hook or HookCandidate(
+                hook_id=0, hook_text=scenes[0].voiceover_text if scenes else topic,
+                archetype="BASIC", emotion_trigger="curiosity", retention_score=6.0,
+                opening_word="", why_it_works=""
+            ),
+            scenes=scenes,
+            estimated_total_duration=t,
+            call_to_action=data.get("call_to_action", "Follow for more"),
+            research_brief_summary=data.get("research_brief_summary", ""),
+        )
+
+        logger.info("Script: %d scenes, %.1fs total", len(scenes), t)
+        return {**state, "script": script}
+
+    except Exception as exc:
+        logger.error("Script generation failed: %s", exc)
+        return state
+
+# Alias for LangGraph workflow compatibility
+script_writer_node = generate_script

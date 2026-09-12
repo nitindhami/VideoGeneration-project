@@ -1,9 +1,9 @@
-"""FastAPI entrypoint and REST API for CineShorts AI."""
+"""FastAPI entrypoint and REST API for CineShorts AI — Production Grade."""
 
 import asyncio
 import logging
 import uuid
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -11,12 +11,24 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.schemas.hook import HookRequest, HookResponse, HookCandidate, HookEvaluation
+from app.schemas.research import ResearchRequest, ResearchBrief, ResearchStatusResponse
 from app.schemas.script import Script, ScriptGenerationRequest
 from app.schemas.video import RenderRequest, RenderResponse, RenderJobStatus, SubtitleStyle, VideoAspect
 from app.graph.workflows import create_hook_verification_graph, create_full_production_graph
-from app.services.tts_service import AVAILABLE_VOICES, tts_service
+from app.services import research_service
 from app.services.video_engine import video_engine
 from app.services.llm_factory import llm_service
+from app.services.image_service import image_service
+from app.services.tts_service import tts_service
+
+# Default voices list (edge-tts compatible)
+AVAILABLE_VOICES = [
+    {"id": "en-US-ChristopherNeural", "label": "Christopher (US)", "lang": "en-US", "gender": "Male"},
+    {"id": "en-US-GuyNeural", "label": "Guy (US)", "lang": "en-US", "gender": "Male"},
+    {"id": "en-US-JennyNeural", "label": "Jenny (US)", "lang": "en-US", "gender": "Female"},
+    {"id": "en-GB-RyanNeural", "label": "Ryan (UK)", "lang": "en-GB", "gender": "Male"},
+    {"id": "en-AU-WilliamNeural", "label": "William (AU)", "lang": "en-AU", "gender": "Male"},
+]
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -50,79 +62,77 @@ def root():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "llm_provider": llm_service.provider,
+        "llm_model": llm_service.model,
+        "image_provider": image_service.active_provider,
+        "tts_provider": tts_service.active_provider,
         "status": "ready"
+    }
+
+
+@app.get("/api/providers")
+def get_providers():
+    """Return which AI providers are active vs using free fallback."""
+    return {
+        "llm": {
+            "provider": llm_service.provider,
+            "model": llm_service.model,
+            "is_paid": llm_service.provider in ("gemini", "openai", "anthropic"),
+        },
+        "image": {
+            "provider": image_service.active_provider,
+            "is_paid": image_service.active_provider in ("gemini3", "imagen", "replicate"),
+        },
+        "tts": {
+            "provider": tts_service.active_provider,
+            "is_paid": tts_service.active_provider in ("gemini-tts", "elevenlabs"),
+        },
+        "research": {
+            "deep_research_enabled": settings.DEEP_RESEARCH_ENABLED,
+            "can_use_grounded": bool(settings.GEMINI_API_KEY),
+        },
+        "config": {
+            "edit_style": settings.EDIT_STYLE,
+            "image_quality": settings.IMAGE_QUALITY,
+            "images_per_scene": settings.IMAGES_PER_SCENE,
+            "music_enabled": settings.MUSIC_ENABLED,
+        }
     }
 
 
 @app.get("/api/presets")
 def get_presets():
-    """Return all available genres, voices, aspect ratios, and subtitle styles."""
+    """Return all available genres, voices, aspect ratios, subtitle styles, and edit styles."""
     return {
         "genres": [
-            {
-                "id": "mythology",
-                "label": "Mythology & Ancient Legends",
-                "description": "Epic volumetric lighting, ancient secrets, dramatic divine reveals",
-                "color": "#F59E0B"
-            },
-            {
-                "id": "informative",
-                "label": "Informative & Science",
-                "description": "Microscopic details, futuristic laboratory aesthetics, high-curiosity breakthroughs",
-                "color": "#3B82F6"
-            },
-            {
-                "id": "funny",
-                "label": "Comedy & Satire",
-                "description": "Punchy pop pacing, exaggerated expressions, vibrant colorful chaos",
-                "color": "#EC4899"
-            },
-            {
-                "id": "dark_mystery",
-                "label": "Dark Mystery & Noir",
-                "description": "Chiaroscuro shadows, classified documents, eerie psychological hooks",
-                "color": "#8B5CF6"
-            },
-            {
-                "id": "sci_fi",
-                "label": "Sci-Fi & Cyberpunk",
-                "description": "Anamorphic neon flares, holographic tech, interstellar stakes",
-                "color": "#10B981"
-            }
+            {"id": "informative", "label": "Informative & Science", "description": "High-curiosity documentary breakthroughs with dramatic reveals", "color": "#3B82F6"},
+            {"id": "mythology", "label": "Mythology & Ancient Legends", "description": "Epic volumetric lighting, ancient secrets, divine reveals", "color": "#F59E0B"},
+            {"id": "horror", "label": "Dark Mystery & Horror", "description": "Chiaroscuro shadows, dread, psychological hooks", "color": "#8B5CF6"},
+            {"id": "motivational", "label": "Motivational", "description": "Golden hour, uplifting narrative arcs, inspirational pacing", "color": "#10B981"},
+            {"id": "thriller", "label": "Thriller & True Crime", "description": "Cold tones, tension-driven pacing, shocking reveals", "color": "#EF4444"},
+            {"id": "comedy", "label": "Comedy & Satire", "description": "Punchy pacing, vibrant chaos, exaggerated moments", "color": "#EC4899"},
+            {"id": "scientific", "label": "Scientific Deep Dive", "description": "Precision, data-driven, crisp visual clarity", "color": "#06B6D4"},
+            {"id": "sci_fi", "label": "Sci-Fi & Cyberpunk", "description": "Neon flares, holographic tech, interstellar stakes", "color": "#6366F1"},
         ],
         "voices": AVAILABLE_VOICES,
         "aspect_ratios": [
-            {
-                "id": "9:16",
-                "label": "Portrait (9:16)",
-                "description": "Optimized for YouTube Shorts, Instagram Reels, TikTok (1080x1920)",
-                "width": 1080,
-                "height": 1920
-            },
-            {
-                "id": "16:9",
-                "label": "Landscape (16:9)",
-                "description": "Optimized for YouTube Long-form, Desktop, and Cinematic Movies (1920x1080)",
-                "width": 1920,
-                "height": 1080
-            }
+            {"id": "9:16", "label": "Portrait (9:16) — Shorts/Reels", "description": "1080x1920 — YouTube Shorts, Instagram Reels, TikTok", "width": 1080, "height": 1920},
+            {"id": "16:9", "label": "Landscape (16:9) — YouTube", "description": "1920x1080 — YouTube long-form, cinematic", "width": 1920, "height": 1080},
         ],
         "subtitle_styles": [
-            {
-                "id": SubtitleStyle.HORMOZI_BOLD.value,
-                "label": "Hormozi Viral",
-                "description": "Bold yellow & white uppercase with heavy black stroke"
-            },
-            {
-                "id": SubtitleStyle.BEAST_COLOR.value,
-                "label": "MrBeast Pop",
-                "description": "High contrast impact font with vibrant color punches"
-            },
-            {
-                "id": SubtitleStyle.MINIMAL_CLEAN.value,
-                "label": "Clean Modern",
-                "description": "Sleek sans-serif with subtle dark background"
-            }
+            {"id": SubtitleStyle.HORMOZI_BOLD.value, "label": "Hormozi Viral", "description": "Bold white + yellow highlight, massive black stroke"},
+            {"id": SubtitleStyle.BEAST_COLOR.value, "label": "MrBeast Pop", "description": "Impact font, high contrast color punches"},
+            {"id": SubtitleStyle.MINIMAL_CLEAN.value, "label": "Clean Modern", "description": "Sleek Helvetica with subtle shadow"},
+            {"id": SubtitleStyle.CINEMATIC_NOIR.value, "label": "Cinematic Noir", "description": "Gold serif, film-grain elegance"},
+        ],
+        "edit_styles": [
+            {"id": "fast_cuts", "label": "Fast Cuts (Viral)", "description": "8-12 cuts per 30s, 1.5-2.5s per clip — TikTok/Reels native pacing"},
+            {"id": "hybrid", "label": "Hybrid", "description": "Fast hook, medium build, cinematic revelation"},
+            {"id": "cinematic", "label": "Cinematic", "description": "4-6 scenes, slow zoompan, documentary feel"},
+        ],
+        "quality_tiers": [
+            {"id": "economy", "label": "Economy (Free)", "description": "Pollinations + Edge-TTS + 1 image/scene", "cost_estimate": "$0"},
+            {"id": "production", "label": "Production", "description": "Gemini 2.5 Pro + Gemini TTS + 2 images/scene", "cost_estimate": "~$0.50-1.00/video"},
+            {"id": "ultra", "label": "Ultra", "description": "Deep Research + Gemini 3 Pro Image + 3 images/scene", "cost_estimate": "~$2-5/video"},
         ]
     }
 
@@ -194,29 +204,54 @@ async def _run_render_job(job_id: str, request: RenderRequest):
         JOBS[job_id]["status"] = RenderJobStatus.GENERATING_VOICEOVER
         JOBS[job_id]["progress_percent"] = 20
 
-        # Video Engine handles audio synthesis, images, composition, and subtitles
         script_dict = request.script.model_dump()
         JOBS[job_id]["status"] = RenderJobStatus.GENERATING_VISUALS
-        JOBS[job_id]["progress_percent"] = 45
+        JOBS[job_id]["progress_percent"] = 40
 
         output_path = await video_engine.assemble_full_video(
             script_dict=script_dict,
             voice_name=request.voice_name,
             aspect_ratio=request.aspect_ratio.value,
             subtitle_style=request.subtitle_style,
-            burn_subtitles=True
+            burn_subtitles=True,
+            include_bg_music=request.include_bg_music,
+            bg_music_genre=request.bg_music_genre,
+            edit_style=script_dict.get("edit_style", settings.EDIT_STYLE),
         )
 
         JOBS[job_id]["status"] = RenderJobStatus.COMPLETED
         JOBS[job_id]["progress_percent"] = 100
         JOBS[job_id]["file_path"] = str(output_path)
         JOBS[job_id]["video_url"] = f"/outputs/{output_path.name}"
-        JOBS[job_id]["duration_sec"] = await tts_service.get_audio_duration(output_path)
-        logger.info(f"Job {job_id} finished successfully: {output_path.name}")
+        logger.info("Job %s finished: %s", job_id, output_path.name)
     except Exception as e:
-        logger.error(f"Render job {job_id} failed: {e}", exc_info=True)
+        logger.error("Render job %s failed: %s", job_id, e, exc_info=True)
         JOBS[job_id]["status"] = RenderJobStatus.FAILED
         JOBS[job_id]["error_message"] = str(e)
+
+
+# ── Research endpoints ─────────────────────────────────────────────────────────
+
+@app.post("/api/research/start")
+async def start_research(req: ResearchRequest):
+    """Kick off a background research job and return a job_id."""
+    job_id = await research_service.start_research_job(req)
+    return {"job_id": job_id, "status": "in_progress"}
+
+
+@app.get("/api/research/status/{job_id}")
+def get_research_status(job_id: str):
+    """Poll the status of a research job."""
+    status = research_service.get_research_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Research job {job_id} not found")
+    return status
+
+
+@app.post("/api/research/sync", response_model=ResearchBrief)
+async def research_sync(req: ResearchRequest):
+    """Run research synchronously (blocks until done — use for small topics)."""
+    return await research_service.research_topic(req)
 
 
 @app.post("/api/video/render", response_model=RenderResponse)

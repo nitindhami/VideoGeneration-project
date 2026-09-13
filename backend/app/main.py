@@ -4,12 +4,13 @@ import asyncio
 import logging
 import uuid
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from app.config import settings
+from app.config import settings, PROJECT_ROOT, WORKSPACE_ROOT
 from app.schemas.hook import HookRequest, HookResponse, HookCandidate, HookEvaluation
 from app.schemas.research import ResearchRequest, ResearchBrief, ResearchStatusResponse
 from app.schemas.script import Script, ScriptGenerationRequest
@@ -20,6 +21,7 @@ from app.services.video_engine import video_engine
 from app.services.llm_factory import llm_service
 from app.services.image_service import image_service
 from app.services.tts_service import tts_service
+from app.services.ai_video_service import ai_video_service
 
 # Default voices list (edge-tts compatible)
 AVAILABLE_VOICES = [
@@ -99,6 +101,117 @@ def get_providers():
     }
 
 
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return key[:2] + "..." + key[-2:]
+    return key[:4] + "..." + key[-4:]
+
+
+class SettingsKeysRequest(BaseModel):
+    gemini_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    elevenlabs_api_key: Optional[str] = None
+    replicate_api_token: Optional[str] = None
+    deep_research_enabled: Optional[bool] = None
+
+
+@app.get("/api/settings/keys")
+def get_settings_keys():
+    """Return configured status of API keys (masked for privacy)."""
+    return {
+        "gemini_api_key_masked": _mask_key(settings.GEMINI_API_KEY),
+        "has_gemini_api_key": bool(settings.GEMINI_API_KEY),
+        "openai_api_key_masked": _mask_key(settings.OPENAI_API_KEY),
+        "has_openai_api_key": bool(settings.OPENAI_API_KEY),
+        "anthropic_api_key_masked": _mask_key(settings.ANTHROPIC_API_KEY),
+        "has_anthropic_api_key": bool(settings.ANTHROPIC_API_KEY),
+        "elevenlabs_api_key_masked": _mask_key(settings.ELEVENLABS_API_KEY),
+        "has_elevenlabs_api_key": bool(settings.ELEVENLABS_API_KEY),
+        "replicate_api_token_masked": _mask_key(settings.REPLICATE_API_TOKEN),
+        "has_replicate_api_token": bool(settings.REPLICATE_API_TOKEN),
+        "deep_research_enabled": settings.DEEP_RESEARCH_ENABLED,
+        "providers": get_providers(),
+    }
+
+
+@app.post("/api/settings/keys")
+def save_settings_keys(req: SettingsKeysRequest):
+    """Save API keys to backend/.env and hot-reload all AI services."""
+    env_file = PROJECT_ROOT / ".env"
+
+    existing_lines: list[str] = []
+    if env_file.exists():
+        existing_lines = env_file.read_text(encoding="utf-8").splitlines()
+
+    env_dict: dict[str, str] = {}
+    for line in existing_lines:
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            env_dict[k.strip()] = v.strip()
+
+    # Update keys if provided (and not masked placeholder like "AIza...")
+    if req.gemini_api_key is not None and not req.gemini_api_key.startswith("..."):
+        clean_key = req.gemini_api_key.strip()
+        settings.GEMINI_API_KEY = clean_key
+        env_dict["GEMINI_API_KEY"] = clean_key
+
+    if req.openai_api_key is not None and not req.openai_api_key.startswith("..."):
+        clean_key = req.openai_api_key.strip()
+        settings.OPENAI_API_KEY = clean_key
+        env_dict["OPENAI_API_KEY"] = clean_key
+
+    if req.anthropic_api_key is not None and not req.anthropic_api_key.startswith("..."):
+        clean_key = req.anthropic_api_key.strip()
+        settings.ANTHROPIC_API_KEY = clean_key
+        env_dict["ANTHROPIC_API_KEY"] = clean_key
+
+    if req.elevenlabs_api_key is not None and not req.elevenlabs_api_key.startswith("..."):
+        clean_key = req.elevenlabs_api_key.strip()
+        settings.ELEVENLABS_API_KEY = clean_key
+        env_dict["ELEVENLABS_API_KEY"] = clean_key
+
+    if req.replicate_api_token is not None and not req.replicate_api_token.startswith("..."):
+        clean_key = req.replicate_api_token.strip()
+        settings.REPLICATE_API_TOKEN = clean_key
+        env_dict["REPLICATE_API_TOKEN"] = clean_key
+
+    if req.deep_research_enabled is not None:
+        settings.DEEP_RESEARCH_ENABLED = req.deep_research_enabled
+        env_dict["DEEP_RESEARCH_ENABLED"] = str(req.deep_research_enabled).lower()
+
+    # Write back to both PROJECT_ROOT/.env and WORKSPACE_ROOT/.env
+    new_env_content = "\n".join(f"{k}={v}" for k, v in sorted(env_dict.items())) + "\n"
+    env_file.write_text(new_env_content, encoding="utf-8")
+    workspace_env = WORKSPACE_ROOT / ".env"
+    try:
+        workspace_env.write_text(new_env_content, encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Could not mirror .env to workspace root: %s", exc)
+
+    # Hot reload services immediately
+    llm_service.reload()
+    image_service.reload()
+    tts_service.reload()
+    ai_video_service.reload()
+
+    logger.info(
+        "API keys updated. Hot-reloaded services (LLM: %s, Image: %s, TTS: %s)",
+        llm_service.provider,
+        image_service.active_provider,
+        tts_service.active_provider,
+    )
+
+    return {
+        "success": True,
+        "message": "AI keys saved and services hot-reloaded successfully.",
+        "providers": get_providers(),
+    }
+
+
 @app.get("/api/presets")
 def get_presets():
     """Return all available genres, voices, aspect ratios, subtitle styles, and edit styles."""
@@ -133,7 +246,8 @@ def get_presets():
             {"id": "economy", "label": "Economy (Free)", "description": "Pollinations + Edge-TTS + 1 image/scene", "cost_estimate": "$0"},
             {"id": "production", "label": "Production", "description": "Gemini 2.5 Pro + Gemini TTS + 2 images/scene", "cost_estimate": "~$0.50-1.00/video"},
             {"id": "ultra", "label": "Ultra", "description": "Deep Research + Gemini 3 Pro Image + 3 images/scene", "cost_estimate": "~$2-5/video"},
-        ]
+        ],
+        "video_engines": ai_video_service.get_available_engines(),
     }
 
 
@@ -143,6 +257,11 @@ async def generate_and_verify_hooks(req: HookRequest):
     logger.info(f"API: Generating & verifying hooks for topic='{req.topic}', genre='{req.genre}'")
     graph = create_hook_verification_graph()
 
+    # Pre-research topic to ensure real factual grounding
+    brief = await research_service.research_topic(
+        ResearchRequest(topic=req.topic, genre=req.genre, depth="grounded" if settings.GEMINI_API_KEY else "basic")
+    )
+
     state = {
         "topic": req.topic,
         "genre": req.genre,
@@ -151,6 +270,7 @@ async def generate_and_verify_hooks(req: HookRequest):
         "min_pass_score": req.min_pass_score,
         "max_iterations": req.max_iterations,
         "iteration_count": 0,
+        "research_brief": brief.model_dump(),
     }
 
     result = await graph.ainvoke(state)
@@ -177,18 +297,28 @@ async def generate_scene_script(req: ScriptGenerationRequest):
     logger.info(f"API: Generating scene script for topic='{req.topic}'")
     graph = create_full_production_graph()
 
+    # Ground script generation in real research
+    brief = await research_service.research_topic(
+        ResearchRequest(topic=req.topic, genre=req.genre, depth="grounded" if settings.GEMINI_API_KEY else "basic")
+    )
+
     state = {
         "topic": req.topic,
         "genre": req.genre,
         "aspect_ratio": req.aspect_ratio,
         "target_duration_sec": req.target_duration_sec,
+        "edit_style": getattr(req, "edit_style", settings.EDIT_STYLE),
         "min_pass_score": 80,
         "max_iterations": 3,
         "iteration_count": 0,
+        "research_brief": brief.model_dump(),
     }
 
     if req.selected_hook:
-        state["winning_hook"] = req.selected_hook.model_dump()
+        hook_dict = req.selected_hook.model_dump()
+        state["winning_hook"] = hook_dict
+        state["selected_hook"] = hook_dict
+        state["user_selected_hook"] = hook_dict
 
     result = await graph.ainvoke(state)
     full_script = result.get("full_script")
@@ -225,6 +355,7 @@ async def _run_render_job(job_id: str, request: RenderRequest):
             include_bg_music=request.include_bg_music,
             bg_music_genre=request.bg_music_genre,
             edit_style=script_dict.get("edit_style", settings.EDIT_STYLE),
+            video_engine_mode=getattr(request, "video_engine_mode", "fast_motion"),
             progress_callback=on_progress,
         )
 

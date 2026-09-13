@@ -15,12 +15,12 @@ class HookArchetype(str, Enum):
 
 
 class HookCandidate(BaseModel):
-    id: str = Field(..., description="Unique hook identifier, e.g. hook_1")
+    id: str = Field(default="hook_1", description="Unique hook identifier, e.g. hook_1")
     text: str = Field(..., description="The spoken or textual hook")
-    archetype: HookArchetype = Field(..., description="The psychological hook framework used")
-    visual_concept: str = Field(..., description="First 2-second visual action/metaphor")
-    audio_sfx_cue: str = Field(..., description="Opening audio cue (e.g. dramatic whoosh, heartbeat, record scratch)")
-    explanation: str = Field(..., description="Why this hook captures psychological attention")
+    archetype: HookArchetype = Field(default=HookArchetype.CURIOSITY_GAP, description="The psychological hook framework used")
+    visual_concept: str = Field(default="", description="First 2-second visual action/metaphor")
+    audio_sfx_cue: str = Field(default="deep bass impact", description="Opening audio cue (e.g. dramatic whoosh, heartbeat, record scratch)")
+    explanation: str = Field(default="", description="Why this hook captures psychological attention")
 
 
 class HookEvaluation(BaseModel):

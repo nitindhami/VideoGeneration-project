@@ -168,6 +168,10 @@ class TTSService:
     def __init__(self):
         self._provider_chain = self._build_chain()
 
+    def reload(self):
+        """Re-detect TTS providers after settings change."""
+        self._provider_chain = self._build_chain()
+
     def _build_chain(self) -> list:
         provider = settings.TTS_PROVIDER
         chain = []

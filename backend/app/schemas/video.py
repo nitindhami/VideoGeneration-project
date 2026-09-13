@@ -37,6 +37,7 @@ class RenderRequest(BaseModel):
     aspect_ratio: VideoAspect = Field(default=VideoAspect.PORTRAIT_9_16)
     include_bg_music: bool = Field(default=True)
     bg_music_genre: str = Field(default="epic_cinematic")
+    video_engine_mode: str = Field(default="fast_motion", description="fast_motion | gemini_omni | minimax | luma | hybrid")
 
 
 class RenderResponse(BaseModel):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -122,11 +123,216 @@ Return ONLY a valid JSON object (no markdown):
 }}"""
 
 
+def _build_grounded_fallback_scenes(
+    topic: str,
+    genre: str,
+    edit_style: str,
+    hook_text: str,
+    research_brief: Optional[dict],
+    target_duration: int = 30,
+) -> tuple[dict, list[dict]]:
+    """Build narrative fallback scenes tightly grounded in verified research facts (no AI slop)."""
+    facts = []
+    stats = []
+    quotes = []
+    visuals = []
+    controversy = ""
+    if research_brief:
+        facts = research_brief.get("key_facts", [])
+        stats = research_brief.get("surprising_stats", [])
+        quotes = research_brief.get("expert_quotes", [])
+        visuals = research_brief.get("visual_opportunities", [])
+    if not facts:
+        from app.services.research_service import fetch_open_knowledge
+        open_data = fetch_open_knowledge(topic)
+        if open_data.get("found"):
+            facts = open_data.get("key_facts", [])
+            stats = open_data.get("surprising_stats", [])
+            if not controversy:
+                controversy = f"How {open_data.get('title', topic)} quietly transformed lives across continents."
+
+    topic_clean = topic.title()
+    num_scenes = max(4, target_duration // (3 if edit_style == "fast_cuts" else 6))
+    scene_dur = round(target_duration / num_scenes, 1)
+
+    vo_lines: list[str] = []
+    callouts: list[str] = []
+    vis_prompts: list[str] = []
+    used_fact_indices: set[int] = set()
+
+    def format_fact_for_voiceover(raw_fact: str) -> str:
+        text = raw_fact.strip()
+        text = re.sub(r"\([^)]*\)", "", text)
+        text = re.sub(r"\s+([,.;!?])", r"\1", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        if text.lower().startswith("also known as") or text.lower().startswith("and by his followers"):
+            text = f"{topic.title()} was {text}"
+        if len(text) > 155:
+            m = re.search(r"^(.{60,150})[\.,;]\s", text)
+            if m:
+                text = m.group(1).strip()
+            else:
+                words = text.split(" ")
+                shortened = []
+                cur_len = 0
+                for w in words:
+                    if cur_len + len(w) + 1 > 140:
+                        break
+                    shortened.append(w)
+                    cur_len += len(w) + 1
+                dangling = {"a", "an", "the", "to", "in", "at", "with", "and", "or", "of", "for", "by", "from", "on"}
+                while shortened and shortened[-1].lower() in dangling:
+                    shortened.pop()
+                text = " ".join(shortened)
+        text = text.strip()
+        if not text.endswith((".", "!", "?")):
+            text += "."
+        return text
+
+    def get_thematic_metadata(fact_text: str, fallback_idx: int) -> tuple[str, str]:
+        fl = fact_text.lower()
+        if any(w in fl for w in ["died", "hospital", "words", "samadhi", "coma", "convulsing"]):
+            return "FINAL MAHASAMADHI", f"Sacred stone shrine glowing softly in candlelight, fragrant orange marigold garlands, volumetric spiritual rays, 8k documentary depth"
+        if any(w in fl for w in ["ram dass", "larry brilliant", "steve jobs", "disciples", "followers", "foundation", "seva", "krishna das"]):
+            return "GLOBAL SEEKERS", f"Western disciples and spiritual seekers sitting attentively at the feet of an Indian sage wrapped in a blanket, warm 1970s film aesthetic, 8k"
+        if any(w in fl for w in ["born", "birth", "village", "childhood", "parents", "married", "fathered"]):
+            return "HUMBLE ORIGINS", f"Authentic historical village setting in India, early 1900s, dusty paths, traditional brick homes, soft golden morning light, 8k cinematic realism"
+        if any(w in fl for w in ["sadhu", "hermit", "wandered", "journey", "train"]):
+            return "WANDERING SADHU", f"A solitary wandering ascetic monk walking barefoot through misty morning fog along an ancient northern Indian road, cinematic 8k"
+        if any(w in fl for w in ["kainchi", "ashram", "temple", "vrindavan", "stayed"]):
+            return "SACRED SANCTUARY", f"Serene Himalayan mountain ashram in Kainchi Dham, nestled among lush green pines and running mountain river, temple bells, 8k"
+        if any(w in fl for w in ["mela", "pilgrims", "thousands", "gathering"]):
+            return "SACRED GATHERING", f"Vibrant mountain pilgrimage festival with thousands gathered peacefully, colorful flags, saffron robes, majestic Himalayan peaks, 8k"
+        if any(w in fl for w in ["teachings", "love", "serve", "feed", "remember"]):
+            return "CORE TEACHINGS", f"Warm communal gathering sharing humble food and wisdom, heartfelt expressions of unconditional love and unity, warm golden glow, 8k"
+        
+        default_callouts = ["PIVOTAL MOMENT", "SACRED TRUTH", "TIMELESS IMPACT", "ENDURING LEGACY", "LIVING PROOF"]
+        return default_callouts[fallback_idx % len(default_callouts)], f"Atmospheric cinematic documentary scene capturing the profound essence of {topic}, dramatic lighting, 8k resolution"
+
+    def get_next_fact() -> Optional[str]:
+        for fi, fact in enumerate(facts):
+            if fi not in used_fact_indices:
+                used_fact_indices.add(fi)
+                return format_fact_for_voiceover(fact)
+        return None
+
+    # Scene 1: The Hook
+    if hook_text:
+        vo_lines.append(hook_text)
+    elif controversy:
+        vo_lines.append(f"The documented history of {topic} is nothing like what you were taught.")
+    else:
+        vo_lines.append(f"Behind the quiet legend of {topic} lies a truth that reshaped millions of lives.")
+    callouts.append("THE UNTOLD STORY")
+    vis_prompts.append(
+        visuals[0] if visuals else f"Cinematic atmospheric portrait of {topic}, dramatic lighting, 8k documentary depth"
+    )
+
+    # Scene 2: The Origins / Early Years
+    f2 = get_next_fact()
+    if f2:
+        vo_lines.append(f2)
+        call, vis = get_thematic_metadata(f2, 0)
+        callouts.append(call)
+        vis_prompts.append(vis)
+    else:
+        vo_lines.append(f"Archival records reveal an extraordinary journey that began in complete obscurity.")
+        callouts.append("THE ORIGINS")
+        vis_prompts.append(visuals[1] if len(visuals) > 1 else f"Authentic historical setting for {topic}, warm golden hour, cinematic realism")
+
+    # Scene 3: The Turning Point / Ashram / Milestone
+    f3 = get_next_fact()
+    if f3:
+        vo_lines.append(f3)
+        call, vis = get_thematic_metadata(f3, 1)
+        callouts.append(call)
+        vis_prompts.append(vis)
+    elif stats:
+        vo_lines.append(f"Documented records show: {stats[0][:110]}")
+        callouts.append("THE TURNING POINT")
+        vis_prompts.append(visuals[2] if len(visuals) > 2 else f"Sacred majestic environment associated with {topic}, volumetric light rays")
+    else:
+        vo_lines.append(f"A profound turning point transformed {topic} from a localized presence to a global inspiration.")
+        callouts.append("THE TURNING POINT")
+        vis_prompts.append(visuals[2] if len(visuals) > 2 else f"Sacred majestic environment associated with {topic}, volumetric light rays")
+
+    # Scene 4: Legacy / Global Impact / Wisdom
+    if quotes:
+        vo_lines.append(quotes[0][:120])
+        callouts.append("TIMELESS WORDS")
+        vis_prompts.append(visuals[3] if len(visuals) > 3 else f"Wide cinematic vista celebrating the enduring spiritual and cultural legacy of {topic}")
+    else:
+        f4 = get_next_fact()
+        if f4:
+            vo_lines.append(f4)
+            call, vis = get_thematic_metadata(f4, 2)
+            callouts.append(call)
+            vis_prompts.append(vis)
+        else:
+            vo_lines.append(f"Decades later, the timeless impact of {topic} continues to ripple across cultures worldwide.")
+            callouts.append("TIMELESS LEGACY")
+            vis_prompts.append(visuals[3] if len(visuals) > 3 else f"Wide cinematic vista celebrating the enduring spiritual and cultural legacy of {topic}")
+
+    # Subsequent Scenes: Pull real facts chronologically
+    while len(vo_lines) < num_scenes:
+        next_f = get_next_fact()
+        if next_f:
+            vo_lines.append(next_f)
+            call, vis = get_thematic_metadata(next_f, len(used_fact_indices))
+            callouts.append(call)
+            vis_prompts.append(vis)
+        else:
+            # Fallback only if facts exhausted
+            concluding_beats = [
+                ("Their core message remained unwavering: love everyone, serve everyone, and remember truth.", "UNWAVERING TRUTH"),
+                ("Today, seekers from across the globe continue to journey to their sacred sanctuaries.", "LIVING LEGACY"),
+                ("Their extraordinary life stands as permanent proof that unconditional love transforms the world.", "PERMANENT IMPACT"),
+            ]
+            c_idx = len(vo_lines) - len(used_fact_indices)
+            b_text, b_call = concluding_beats[c_idx % len(concluding_beats)]
+            vo_lines.append(b_text)
+            callouts.append(b_call)
+            vis_prompts.append(f"Grand wide cinematic vista of {topic}, golden hour sunset, tranquil spiritual atmosphere, 8k masterpiece")
+
+    scenes = []
+    for i in range(num_scenes):
+        scenes.append({
+            "scene_id": i + 1,
+            "duration_sec": scene_dur,
+            "voiceover_text": vo_lines[i] if i < len(vo_lines) else f"The incredible story of {topic}.",
+            "visual_prompt": f"{vis_prompts[i]}, 8k resolution, photorealistic, sharp focus, cinematic color grading, no text, no watermarks",
+            "on_screen_text": callouts[i] if i < len(callouts) else "KEY MOMENT",
+            "visual_hook_type": "Hard Cut" if i % 2 == 0 else "Whip Pan",
+            "camera_motion": "zoom_in" if i % 2 == 0 else "pan_right",
+            "transition_to_next": "hard_cut",
+            "audio_sfx_cue": "deep bass impact" if i == 0 else ("riser" if i == 1 else "heartbeat"),
+            "emphasis_words": [w for w in topic.split() if len(w) > 3][:2],
+            "sub_clips": [f"Atmospheric visual cut {i+1} for {topic}", f"Cinematic perspective {i+1}"],
+            "cut_timing": [round(scene_dur * 0.4, 2), round(scene_dur * 0.8, 2)],
+        })
+
+    fallback_data = {
+        "title": f"The True Story of {topic_clean}",
+        "topic": topic,
+        "genre": genre,
+        "edit_style": edit_style,
+        "aspect_ratio": "9:16",
+        "estimated_total_duration": float(target_duration),
+        "research_brief_summary": controversy or f"Grounded historical investigation into the life and legacy of {topic}.",
+        "call_to_action": f"Share this with someone who needs to hear the story of {topic}",
+        "scenes": scenes,
+    }
+    return fallback_data, scenes
+
+
 async def generate_script(state: dict) -> dict:
     """LangGraph node: write a film-level script using research and hook."""
     request: Optional[ScriptGenerationRequest] = state.get("script_request")
-    hook_raw = state.get("winning_hook") or state.get("selected_hook") or (
-        state.get("candidates", [{}])[0] if state.get("candidates") else None
+    hook_raw = (
+        state.get("user_selected_hook")
+        or state.get("selected_hook")
+        or state.get("winning_hook")
+        or (state.get("candidates", [{}])[0] if state.get("candidates") else None)
     )
     hook_text = ""
     if isinstance(hook_raw, dict):
@@ -152,76 +358,9 @@ async def generate_script(state: dict) -> dict:
     if hook_text:
         prompt += f"\n\nOPENING HOOK (must be scene 1 voiceover):\n\"{hook_text}\""
 
-    fallback_scenes = [
-        {
-            "scene_id": 1,
-            "duration_sec": 3.5,
-            "voiceover_text": hook_text or f"The untold reality of {topic} will leave you stunned.",
-            "visual_prompt": f"Dramatic extreme closeup of {topic}, cinematic 8k lighting",
-            "on_screen_text": "THE SECRET REVEALED",
-            "visual_hook_type": "Hard Cut",
-            "camera_motion": "zoom_in",
-            "transition_to_next": "hard_cut",
-            "audio_sfx_cue": "heavy bass impact",
-            "emphasis_words": ["untold", "stunned"],
-            "sub_clips": [f"Macro texture of {topic}", f"Atmospheric perspective of {topic}"],
-            "cut_timing": [1.2, 2.4]
-        },
-        {
-            "scene_id": 2,
-            "duration_sec": 4.0,
-            "voiceover_text": f"For centuries, researchers could not explain how {topic} actually functioned.",
-            "visual_prompt": f"Historical archive and architectural blueprint of {topic}, moody lighting",
-            "on_screen_text": "UNSOLVED MYSTERY",
-            "visual_hook_type": "Whip Pan",
-            "camera_motion": "pan_left",
-            "transition_to_next": "hard_cut",
-            "audio_sfx_cue": "riser and camera shutter",
-            "emphasis_words": ["centuries", "explain"],
-            "sub_clips": [f"Blueprint closeup of {topic}", f"Laboratory microscope view"],
-            "cut_timing": [1.5, 3.0]
-        },
-        {
-            "scene_id": 3,
-            "duration_sec": 4.0,
-            "voiceover_text": f"Then a groundbreaking discovery revealed an astonishing hidden mechanism.",
-            "visual_prompt": f"Microscopic view of active self-assembling reaction in {topic}, volumetric light",
-            "on_screen_text": "THE BREAKTHROUGH",
-            "visual_hook_type": "Zoom Burst",
-            "camera_motion": "zoom_out",
-            "transition_to_next": "hard_cut",
-            "audio_sfx_cue": "deep sub bass drop",
-            "emphasis_words": ["discovery", "astonishing"],
-            "sub_clips": [f"Glowing particle reaction in {topic}", f"Time-lapse restoration"],
-            "cut_timing": [1.4, 2.8]
-        },
-        {
-            "scene_id": 4,
-            "duration_sec": 3.5,
-            "voiceover_text": f"Today, this ancient formula is reshaping modern engineering forever.",
-            "visual_prompt": f"Futuristic megastructure built with modern bio-concrete, sun flare",
-            "on_screen_text": "FUTURE OF TECH",
-            "visual_hook_type": "Macro Reveal",
-            "camera_motion": "tilt_up",
-            "transition_to_next": "hard_cut",
-            "audio_sfx_cue": "synth swell and chime",
-            "emphasis_words": ["modern", "forever"],
-            "sub_clips": [f"Futuristic skyline", f"Engineering blueprint overlay"],
-            "cut_timing": [1.2, 2.5]
-        },
-    ]
-
-    fallback_data = {
-        "title": f"The Secret of {topic}",
-        "topic": topic,
-        "genre": genre,
-        "edit_style": edit_style,
-        "aspect_ratio": aspect_ratio,
-        "estimated_total_duration": 15.0,
-        "research_brief_summary": f"Explores key breakthrough engineering mechanisms behind {topic}.",
-        "call_to_action": "Follow for more unexplained engineering breakthroughs",
-        "scenes": fallback_scenes
-    }
+    fallback_data, fallback_scenes = _build_grounded_fallback_scenes(
+        topic, genre, edit_style, hook_text, research_brief, target_duration
+    )
 
     try:
         data = await llm_service.invoke_json(SCRIPT_SYSTEM_PROMPT, prompt, fallback_data)

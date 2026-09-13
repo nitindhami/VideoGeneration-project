@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from app.config import settings
 from app.schemas.script import Script
 from app.schemas.video import SubtitleStyle, VideoAspect
+from app.services.ai_video_service import ai_video_service
 from app.services.audio_mixer import mix_with_music
 from app.services.image_service import image_service
 from app.services.subtitle_engine import subtitle_engine
@@ -260,6 +261,43 @@ TRANSITION_FILTER = {
 }
 
 
+async def _render_ai_video_clip(
+    video_path: Path,
+    audio_path: Path,
+    target_duration: float,
+    width: int,
+    height: int,
+    output_path: Path,
+) -> bool:
+    """Scales, crops, and conforms an AI-generated video clip to the scene duration and attaches voiceover."""
+    try:
+        video_dur = await _get_audio_duration(video_path)
+        vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},format=yuv420p"
+        
+        args = [
+            "-stream_loop", "-1" if video_dur < target_duration - 0.2 else "0",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-t", str(round(target_duration, 2)),
+            "-vf", vf,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(output_path),
+        ]
+        ok, err = await _run_ffmpeg(*args)
+        if not ok:
+            logger.warning("Conforming AI video clip failed: %s", err[:200])
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("Conforming AI video clip error: %s", exc)
+        return False
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main pipeline
 # ──────────────────────────────────────────────────────────────────────────────
@@ -281,6 +319,7 @@ class VideoEngine:
         include_bg_music: bool = True,
         bg_music_genre: str = "",
         edit_style: str = "",
+        video_engine_mode: str = "fast_motion",
         progress_callback: Optional[Callable[[int, str, str], None]] = None,
     ) -> Path:
         """Full pipeline: TTS -> Images (multi-cut) -> Scene Clips -> Concat -> Music -> Subtitles -> Final MP4."""
@@ -361,28 +400,62 @@ class VideoEngine:
                 )
                 image_paths = [img]
 
-            report(scene_base_pct + 6, "compositing_video", f"[Scene {idx}/{total_scenes}] Rendering camera motion ({motion})...")
-
-            # Render scene clip
+            # Render scene clip (AI Video or 2.5D Motion)
             scene_clip = job_temp / f"clip_{idx:03d}.mp4"
-            if use_multi_cut and len(image_paths) > 1:
-                await _render_multi_cut_scene(
-                    image_paths=image_paths,
-                    audio_path=audio_path,
-                    total_duration=scene_duration,
-                    width=width, height=height,
-                    output_path=scene_clip,
+            ai_clip_rendered = False
+
+            # Check if this scene should be generated with true AI Video
+            should_use_ai_video = False
+            if video_engine_mode in ("gemini_omni", "minimax", "luma"):
+                should_use_ai_video = True
+            elif video_engine_mode == "hybrid":
+                # AI Video on Scene 1 (the critical hook) and middle turning point
+                should_use_ai_video = (idx == 1 or idx == max(2, total_scenes // 2))
+
+            if should_use_ai_video:
+                report(scene_base_pct + 4, "generating_visuals", f"[Scene {idx}/{total_scenes}] Synthesizing AI Video via {video_engine_mode}...")
+                ai_vid_path = await ai_video_service.generate_scene_video(
+                    prompt=v_prompt,
+                    engine_id=video_engine_mode,
+                    first_frame_path=image_paths[0] if image_paths else None,
+                    aspect_ratio=aspect_ratio,
+                    duration_sec=int(scene_duration),
+                    output_dir=job_temp,
                 )
-            else:
-                await _render_clip(
-                    image_path=image_paths[0],
-                    audio_path=audio_path,
-                    duration=scene_duration,
-                    camera_motion=motion,
-                    width=width, height=height,
-                    output_path=scene_clip,
-                    fast_cut_mode=fast_cuts,
-                )
+                if ai_vid_path and ai_vid_path.exists():
+                    conformed = await _render_ai_video_clip(
+                        video_path=ai_vid_path,
+                        audio_path=audio_path,
+                        target_duration=scene_duration,
+                        width=width, height=height,
+                        output_path=scene_clip,
+                    )
+                    if conformed and scene_clip.exists():
+                        ai_clip_rendered = True
+                        report(scene_base_pct + 7, "compositing_video", f"[Scene {idx}/{total_scenes}] AI Video conformed & synchronized!")
+                if not ai_clip_rendered:
+                    logger.info("Scene %d AI video generation skipped or failed; falling back to 2.5D camera motion", idx)
+
+            if not ai_clip_rendered:
+                report(scene_base_pct + 6, "compositing_video", f"[Scene {idx}/{total_scenes}] Rendering camera motion ({motion})...")
+                if use_multi_cut and len(image_paths) > 1:
+                    await _render_multi_cut_scene(
+                        image_paths=image_paths,
+                        audio_path=audio_path,
+                        total_duration=scene_duration,
+                        width=width, height=height,
+                        output_path=scene_clip,
+                    )
+                else:
+                    await _render_clip(
+                        image_path=image_paths[0],
+                        audio_path=audio_path,
+                        duration=scene_duration,
+                        camera_motion=motion,
+                        width=width, height=height,
+                        output_path=scene_clip,
+                        fast_cut_mode=fast_cuts,
+                    )
 
             clip_paths.append(scene_clip)
 

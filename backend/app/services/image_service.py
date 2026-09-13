@@ -235,6 +235,10 @@ class ImageService:
     def __init__(self):
         self._provider_chain = self._build_chain()
 
+    def reload(self):
+        """Re-detect image providers after settings change."""
+        self._provider_chain = self._build_chain()
+
     def _build_chain(self) -> List[str]:
         chain = []
         provider = settings.IMAGE_PROVIDER

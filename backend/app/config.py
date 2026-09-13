@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     REPLICATE_IMAGE_MODEL: str = "black-forest-labs/flux-1.1-pro"
     IMAGES_PER_SCENE: int = 2        # 1=economy, 2-3=production multi-cut
 
+    # ── Video Engine & AI Models ──────────────────────────────────
+    VIDEO_ENGINE_MODE: str = "fast_motion"   # fast_motion | gemini_omni | minimax | luma | hybrid
+    AI_VIDEO_MODEL: str = "gemini-omni-1.1-flash"
+    AI_VIDEO_RESOLUTION: str = "720p"        # 720p | 1080p
+
     # ── Video Editing ─────────────────────────────────────────────
     EDIT_STYLE: str = "fast_cuts"    # fast_cuts | cinematic | hybrid
     MUSIC_ENABLED: bool = True

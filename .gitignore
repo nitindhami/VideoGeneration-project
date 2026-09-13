@@ -1,0 +1,39 @@
+# Environment & Secret Keys (NEVER COMMIT THESE)
+.env
+.env.*
+*.env
+backend/.env
+backend/.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+.venv/
+venv/
+ENV/
+env/
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+.vite/
+
+# Storage & Temporary Outputs
+storage/outputs/*
+storage/temp/*
+!storage/outputs/.gitkeep
+!storage/temp/.gitkeep
+
+# Operating System & IDEs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

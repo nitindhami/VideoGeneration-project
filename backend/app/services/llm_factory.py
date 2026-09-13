@@ -67,10 +67,16 @@ class LLMService:
             self._client = genai.Client()
             self._model = settings.FALLBACK_LLM_MODEL
             self._provider = "gemini-free"
-            logger.warning("LLM: no API keys found, using Gemini free tier")
         except Exception as e:
             logger.error("No LLM provider available: %s", e)
             self._provider = "mock"
+
+    def reload(self):
+        """Re-initialize client and provider based on latest settings."""
+        self._provider = None
+        self._client = None
+        self._model = ""
+        self._initialize()
 
     @property
     def provider(self) -> str:

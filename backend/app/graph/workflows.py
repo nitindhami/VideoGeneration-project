@@ -61,6 +61,13 @@ def create_hook_verification_graph():
     return workflow.compile()
 
 
+def route_start(state: HookEngineState) -> Literal["hook_generator", "script_writer"]:
+    """If hook was already provided by user, skip hook generation and proceed directly to script writer."""
+    if state.get("winning_hook") or state.get("selected_hook") or state.get("user_selected_hook"):
+        return "script_writer"
+    return "hook_generator"
+
+
 def create_full_production_graph():
     """Full end-to-end graph: Hook -> Critic Loop -> Scene Script -> Prompt Optimizer."""
     workflow = StateGraph(HookEngineState)
@@ -70,7 +77,14 @@ def create_full_production_graph():
     workflow.add_node("script_writer", script_writer_node)
     workflow.add_node("prompt_optimizer", prompt_optimizer_node)
     
-    workflow.add_edge(START, "hook_generator")
+    workflow.add_conditional_edges(
+        START,
+        route_start,
+        {
+            "hook_generator": "hook_generator",
+            "script_writer": "script_writer",
+        }
+    )
     workflow.add_edge("hook_generator", "hook_critic")
     
     workflow.add_conditional_edges(

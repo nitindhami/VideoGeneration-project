@@ -91,36 +91,43 @@ async def generate_hooks(state: Dict[str, Any]) -> Dict[str, Any]:
     if latest_critique:
         prompt += f"\n\nPREVIOUS CRITIQUE TO FIX:\n{latest_critique}"
 
+    import re
+    clean_topic = re.sub(r"\b(life story|biography|story|documentary)\b", "", topic, flags=re.I).strip() or topic
+
     try:
+        fallback_hooks = [
+            {
+                "id": "hook_1",
+                "text": f"The hidden, documented truth about {clean_topic} that most people never hear.",
+                "archetype": "forbidden_truth",
+                "visual_concept": f"Dramatic cinematic reveal of {clean_topic} under harsh spotlight",
+                "audio_sfx_cue": "deep bass impact and riser",
+                "explanation": "Taps into curiosity gap and forbidden knowledge framing",
+            },
+            {
+                "id": "hook_2",
+                "text": f"Before they transformed modern history, their path led straight to {clean_topic}.",
+                "archetype": "pattern_interrupt",
+                "visual_concept": f"Fast cinematic montage connecting {clean_topic} to global turning points",
+                "audio_sfx_cue": "record scratch and rapid whoosh",
+                "explanation": "Challenges common beliefs and stops scroll",
+            },
+            {
+                "id": "hook_3",
+                "text": f"If you think you know the story of {clean_topic}, this one historical fact changes everything.",
+                "archetype": "paradox",
+                "visual_concept": f"High contrast split-screen comparison of {clean_topic}",
+                "audio_sfx_cue": "heartbeat tempo buildup",
+                "explanation": "Creates unresolved curiosity loop",
+            }
+        ]
+        if research_brief and research_brief.get("controversy_angle"):
+            fallback_hooks[0]["text"] = research_brief["controversy_angle"][:110]
+
         raw_json = await llm_service.invoke_json(
             HOOK_SYSTEM_PROMPT,
             prompt,
-            fallback_response=[
-                {
-                    "id": "hook_1",
-                    "text": f"The hidden truth about {topic} that history tried to bury.",
-                    "archetype": "forbidden_truth",
-                    "visual_concept": f"Dramatic cinematic reveal of {topic} under harsh spotlight",
-                    "audio_sfx_cue": "deep bass impact and riser",
-                    "explanation": "Taps into curiosity gap and forbidden knowledge framing",
-                },
-                {
-                    "id": "hook_2",
-                    "text": f"Why 99% of people completely misunderstand how {topic} actually works.",
-                    "archetype": "pattern_interrupt",
-                    "visual_concept": f"Fast glitch cut showing unexpected reality of {topic}",
-                    "audio_sfx_cue": "record scratch and rapid whoosh",
-                    "explanation": "Challenges common beliefs and stops scroll",
-                },
-                {
-                    "id": "hook_3",
-                    "text": f"If you think you know {topic}, this one discovery changes everything.",
-                    "archetype": "paradox",
-                    "visual_concept": f"High contrast split-screen comparison of {topic}",
-                    "audio_sfx_cue": "heartbeat tempo buildup",
-                    "explanation": "Creates unresolved curiosity loop",
-                }
-            ]
+            fallback_response=fallback_hooks
         )
 
         candidates_data = raw_json if isinstance(raw_json, list) else raw_json.get("hooks", raw_json.get("candidates", []))
